@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+
+build/
+dist/
+
+*.spec
+
+*.exe
+
+settings.json
+
+.vscode/
+.idea/

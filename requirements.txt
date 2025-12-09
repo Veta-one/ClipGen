@@ -1,0 +1,6 @@
+PyQt5==5.15.10
+pyperclip==1.8.2
+Pillow==10.3.0
+google-generativeai==0.8.5
+pynput==1.7.6
+pywin32==306

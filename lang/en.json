@@ -1,0 +1,171 @@
+{
+    "app_title": "ClipGen",
+    "settings": {
+        "api_key_label": "Gemini API Key:",
+        "gemini_models_label": "Gemini Models:",
+        "language_label": "Language:",
+        "hotkeys_title": "Hotkey Settings",
+        "action_name_label": "Action name:",
+        "prompt_label": "Prompt:",
+        "log_color_label": "Log color:",
+        "add_hotkey_button": "Add new action"
+    },
+    "tabs": {
+        "logs": "Logs",
+        "settings": "Settings",
+        "help": "Help"
+    },
+    "logs": {
+            "key_switched": "Quota exceeded. Switched to key: {key_name}. Retrying...",
+            "clear_logs": "Clear logs",
+            "copy_logs": "Copy logs",
+            "instructions": "Instructions",
+            "stop_task": "Stop",
+            "app_started": "ClipGen started",
+            "execution_time": "Executed in {seconds:.2f} sec.",
+            "stop_request_sent": "Stop request sent...",
+            "task_cancelled": "Task cancelled by user.",
+            "task_cancelled_during_request": "Task cancelled during request execution."
+        },
+    "dialogs": {
+        "confirm_delete_title": "Confirm Deletion",
+        "confirm_delete_message": "Are you sure you want to delete the action '{action_name}'?",
+        "confirm_delete_api_key_message": "Are you sure you want to delete the API key '{key_identifier}'?",
+        "duplicate_hotkey_title": "Duplicate Hotkey",
+        "duplicate_hotkey_message": "The combination {combo} is already used by another action.",
+        "confirm_delete_model_message": "Are you sure you want to delete the model '{model_name}'?",
+        "yes_button": "Yes",
+        "no_button": "No"
+    },
+    "tooltips": {
+            "auto_switch_keys": "Auto-switch keys on limit (429)",
+            "logs_tab": "Switch to the logs tab",
+            "settings_tab": "Switch to the settings tab",
+            "help_tab": "Switch to the help tab",
+            "clear_logs": "Clear all log entries",
+            "copy_logs": "Copy the entire log to the clipboard",
+            "instructions": "Show a brief usage instruction",
+            "stop_task": "Stop the current Gemini request or test",
+            "toggle_keys_visibility": "Show/hide API keys",
+            "add_api_key": "Add a new API key",
+            "language_selection": "Select the interface language",
+            "select_api_key": "Make this key active",
+            "api_usage_tooltip": "Number of requests in the last 24 hours",
+            "test_api_key": "Check if this key is working",
+            "delete_api_key": "Delete this API key",
+            "add_model": "Add a new Gemini model",
+            "select_model": "Make this model active",
+            "model_test_time_tooltip": "Model response time (in seconds)",
+            "delete_model": "Delete this model",
+            "hotkey_input": "Click to change the hotkey combination",
+            "color_picker": "Select a color for the logs of this action",
+            "delete_hotkey": "Delete this action",
+            "add_hotkey": "Add a new hotkey action",
+            "pin_window": "Pin/Unpin window on top",
+            "main_action_button": "Click to perform this action ({combination})"
+        },
+    "errors": {
+        "all_keys_exhausted": "All available keys checked — limits exceeded everywhere. Check the model used in settings!",
+        "gemini_safety_error": "Error: The request was blocked by safety filters.",
+        "gemini_connection_error": "Error: Connection to Google server failed. Check your internet or VPN.",
+        "gemini_timeout_error": "Error: The request timed out. The model is overloaded.",
+        "gemini_service_unavailable": "Error 503: Google service is temporarily unavailable. Try again later.",
+        "gemini_quota_exceeded_friendly": "Error 429: API key limit exceeded. Wait a minute or switch keys.",
+        "api_key_not_set": "API key not configured",
+        "empty_clipboard": "Clipboard is empty",
+        "no_image_clipboard": "Clipboard does not contain an image",
+        "empty_text": "Empty text in request",
+        "empty_response": "Received empty response from Gemini",
+        "api_error": "Error during API request",
+        "retry_error": "Error during request (attempt {attempt}/{max_attempts}): {error}",
+        "all_attempts_failed": "All request attempts failed",
+        "gemini_error": "Error during Gemini request: {error}",
+        "empty_clipboard_attempts": "Clipboard is empty after {attempts} copy attempts",
+        "gemini_404_model_not_found": "Error: Model '{model_name}' not found. Please check the name in settings.",
+        "gemini_429_quota_exceeded": "Error: API request limit exceeded",
+        "gemini_400_invalid_key": "Error: Invalid API key. Please check the key selected in settings.",
+        "gemini_400_invalid_characters": "Error: API key contains invalid characters (e.g., non-Latin symbols).",
+        "gemini_unknown_error": "Unknown API error: {error_details}"
+    },
+    "log_messages": {
+        "processing_start": "Starting Gemini request processing",
+        "image_copied": "Image copied: {width}x{height}",
+        "processed": "Processed:"
+    },
+    "default_actions": {
+        "correction": "Correction",
+        "rewrite": "Rewrite",
+        "translation": "Translation",
+        "explanation": "Explanation",
+        "answer": "Answer a question",
+        "request": "Request",
+        "comment": "Comment",
+        "image_analysis": "Image Analysis"
+    },
+    "default_prompts": {
+        "correction": "Please correct the following text...",
+        "rewrite": "Please rewrite the following text if needed...",
+        "translation": "Please translate the following text to English...",
+        "explanation": "Please explain the following text in simple terms...",
+        "answer": "Please answer the following question...",
+        "request": "Fulfill the user's request...",
+        "comment": "Generate sarcastic comments...",
+        "image_analysis": "Analyze the image..."
+    },
+    "welcome_prompts": [
+        "Today is {formatted_date}, {weekday}, {time_of_day}. Write a short and fun greeting for the ClipGen app (an app that adds the power of AI to your clipboard), starting with '{greeting}'. You can mention a fun or interesting historical fact related to today's date.",
+        "It's {time_of_day}, today is {formatted_date}, {weekday}. Create a witty greeting for a ClipGen app user (an app that adds the power of AI to your clipboard), starting with '{greeting}'. Tell something interesting that happened in history on this day.",
+        "Today is {weekday}, {formatted_date}, {time_of_day}. Write a creative short greeting for a ClipGen app user (an app that adds the power of AI to your clipboard), starting with '{greeting}'. Mention an interesting fact about the current day of the year or holiday, if today is something worth celebrating. Keep it to 1-2 short sentences."
+    ],
+    "instruction": {
+        "title": "ClipGen Usage Instructions",
+        "prompt": "Write a brief guide on how to use the ClipGen application. Explain that this app allows users to use Gemini AI capabilities through hotkeys for clipboard operations. Describe the main functions and how to use them. Add 1-2 examples of use. List the standard key combinations and their purpose. Make the text friendly and easy to understand."
+    },
+    "default_action_name": "New Action",
+    "default_prompt": "Enter a prompt for the new action...",
+    "detection": {
+        "image_detected": "Image detected in clipboard",
+        "text_detected": "Text detected in clipboard"
+    },
+    "time_of_day": {
+        "morning": "morning",
+        "day": "day",
+        "evening": "evening",
+        "night": "night"
+    },
+    "greetings": {
+        "morning": "Good morning",
+        "day": "Good day",
+        "evening": "Good evening",
+        "night": "Good night"
+    },
+    "weekdays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday"
+    ],
+    "welcome_fallback": "{greeting}! ClipGen is ready to help you today, {formatted_date}.",
+    "welcome_back": "Welcome back!",
+    "welcome_error": "Welcome! There was an error connecting to the Gemini API.",
+    "hotkeys_info": "Available hotkeys:",
+    "instruction_fallback": {
+        "title": "How to use ClipGen:",
+        "step1": "1. Copy text or image to clipboard",
+        "step2": "2. Press the appropriate key combination for processing",
+        "step3": "3. The result will be automatically inserted in place of the original text",
+        "hotkeys_title": "Main key combinations:"
+    },
+    "error_messages": {
+        "instruction_gen_failed": "Failed to generate instructions: {error}",
+        "welcome_gen_failed": "Error generating welcome message: {error}",
+        "log_handler_error": "Error in log handler: {error}",
+        "hotkey_press_error": "Error in on_press: {error}",
+        "hotkey_release_error": "Error in on_release: {error}",
+        "queue_processing_error": "Error processing queue: {error}",
+        "startup_error": "Critical startup error: {error}"
+    }
+}
