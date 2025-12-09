@@ -69,7 +69,7 @@ ClipGen умеет «видеть» то, что вы скопировали:
 1. **Клонируйте репозиторий:**
 
    ```bash
-   git clone https://github.com/ваш-юзернейм/ClipGen.git
+   git clone https://github.com/Veta-one/ClipGen.git
    cd ClipGen
    ```
 
