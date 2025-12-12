@@ -8,7 +8,16 @@
         "action_name_label": "Название действия:",
         "prompt_label": "Промпт:",
         "log_color_label": "Цвет в логах:",
-        "add_hotkey_button": "Добавить новое действие"
+        "add_hotkey_button": "Добавить новое действие",
+        "proxy_title": "Прокси (для обхода блокировок)",
+        "proxy_enable_label": "Включить",
+        "proxy_hint": "Формат: login:password@ip:port (без http://)"
+    },
+    "updates": {
+        "title": "Доступно обновление ClipGen",
+        "message": "Вышла новая версия: <b>v{new_version}</b><br><br>Хотите перейти на страницу загрузки?",
+        "download_button": "Перейти на сайт",
+        "skip_button": "Пропустить версию"
     },
     "tabs": {
         "logs": "Логи",
@@ -19,7 +28,9 @@
     "logs": {
         "key_switched": "Лимит исчерпан. Переключились на ключ: {key_name}. Повтор запроса...",
         "clear_logs": "Очистить логи",
-        "copy_logs": "Копировать логи",
+        "check_updates": "Проверить обновления",
+        "checking_updates": "Запрос версии...",
+        "update_not_found": "У Вас последняя версия.",
         "instructions": "Инструкция",
         "stop_task": "Остановить",
         "app_started": "ClipGen запущен",

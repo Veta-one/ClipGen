@@ -1,13 +1,20 @@
 
 
---- 2025-12-12 00:14:40 ---
-Critical startup error: super-class __init__() of type ClipGen was never called
+--- 2025-12-12 13:37:18 ---
+Critical startup error: 'proxy_title'
 Traceback (most recent call last):
-  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen.py", line 1789, in <module>
+  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen.py", line 1822, in <module>
     window = ClipGen()
-  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen.py", line 89, in __init__
-    self.apply_proxy()
+  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen.py", line 133, in __init__
+    super().__init__()
     ~~~~~~~~~~~~~~~~^^
-  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen.py", line 197, in apply_proxy
-    flags = self.windowFlags()
-RuntimeError: super-class __init__() of type ClipGen was never called
+  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen_view.py", line 138, in __init__
+    self.setup_tabs()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen_view.py", line 234, in setup_tabs
+    self.setup_settings_tab() # Index 1
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen_view.py", line 436, in setup_settings_tab
+    proxy_label = QLabel(self.lang["settings"]["proxy_title"])
+                         ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+KeyError: 'proxy_title'

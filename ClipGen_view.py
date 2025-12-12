@@ -26,7 +26,9 @@ class CustomMessageBox(QDialog):
     def __init__(self, parent, title, text, yes_text="Yes", no_text="No"):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setModal(True) # Блокирует родительское окно
+        self.setModal(True)
+        
+        self.setMinimumWidth(400) 
 
         # Применяем темную тему к заголовку
         parent.set_dark_titlebar(int(self.winId()))
@@ -301,10 +303,12 @@ class ClipGenView(QMainWindow):
         """)
         log_actions.addWidget(self.clear_logs_button)
         
-        self.copy_logs_button = QPushButton(self.lang["logs"]["copy_logs"])
-        self.copy_logs_button.setToolTip(self.lang["tooltips"]["copy_logs"])
-        self.copy_logs_button.clicked.connect(lambda: pyperclip.copy(self.log_area.toPlainText()))
-        self.copy_logs_button.setStyleSheet("""
+        # (Кнопка clear_logs_button остается выше без изменений)
+        
+        self.check_updates_button = QPushButton(self.lang["logs"]["check_updates"])
+        self.check_updates_button.setToolTip("Проверить наличие новой версии на GitHub")
+        # Обработчик подключим в ClipGen.py, здесь только создание
+        self.check_updates_button.setStyleSheet("""
             QPushButton {
                 background-color: #333333;
                 border-radius: 8px;
@@ -320,7 +324,7 @@ class ClipGenView(QMainWindow):
                 background-color: #2a2a2a;
             }
         """)
-        log_actions.addWidget(self.copy_logs_button)
+        log_actions.addWidget(self.check_updates_button)
 
         # Новая кнопка "Остановить"
         self.stop_task_button = QPushButton(self.lang["logs"]["stop_task"])
@@ -432,7 +436,8 @@ class ClipGenView(QMainWindow):
 
         # Верхняя строка: Заголовок + Чекбокс
         top_row = QHBoxLayout()
-        proxy_label = QLabel("Прокси (для обхода блокировок)")
+        # ИЗМЕНЕНО: Берём текст из JSON
+        proxy_label = QLabel(self.lang["settings"]["proxy_title"])
         proxy_label.setStyleSheet("border: none;")
         top_row.addWidget(proxy_label)
         top_row.addStretch()
@@ -440,7 +445,8 @@ class ClipGenView(QMainWindow):
         from PyQt5.QtWidgets import QCheckBox, QComboBox
         
         # Добавляем текстовую метку
-        enable_label = QLabel("Включить")
+        # ИЗМЕНЕНО: Берём текст из JSON
+        enable_label = QLabel(self.lang["settings"]["proxy_enable_label"])
         enable_label.setStyleSheet("color: #FFFFFF; border: none;")
         top_row.addWidget(enable_label)
 
@@ -513,7 +519,7 @@ class ClipGenView(QMainWindow):
         input_row.addWidget(self.proxy_input)
         proxy_layout.addLayout(input_row)
         
-        hint = QLabel("Формат: login:password@ip:port (без http://)")
+        hint = QLabel(self.lang["settings"]["proxy_hint"])
         hint.setStyleSheet("color: #666; font-size: 10px; border: none; margin-left: 2px;")
         proxy_layout.addWidget(hint)
 

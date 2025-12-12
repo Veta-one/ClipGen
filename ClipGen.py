@@ -19,7 +19,7 @@ import ctypes
 from ctypes import windll, c_bool, c_int, byref, POINTER, Structure
 from ClipGen_view import ClipGenView, CustomMessageBox
 import urllib.request
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 
 def resource_path(relative_path):
     """Возвращает правильный путь к ресурсу, работает и в .py, и в .exe."""
@@ -74,11 +74,13 @@ DEFAULT_CONFIG = {
 }
 
 class UpdateChecker(threading.Thread):
-    def __init__(self, current_version, skipped_version, callback):
+    def __init__(self, current_version, skipped_version, found_callback, not_found_callback, is_manual=False):
         super().__init__()
         self.current_version = current_version
         self.skipped_version = skipped_version
-        self.callback = callback
+        self.found_callback = found_callback
+        self.not_found_callback = not_found_callback
+        self.is_manual = is_manual
         self.daemon = True
 
     def run(self):
@@ -90,20 +92,30 @@ class UpdateChecker(threading.Thread):
                 latest_tag = data.get("tag_name", "").replace("v", "")
                 html_url = data.get("html_url", "")
                 
-                # Сравниваем версии (простое сравнение строк может ошибаться на 2.0.10, поэтому бьем на числа)
                 current_parts = [int(x) for x in self.current_version.split('.')]
                 latest_parts = [int(x) for x in latest_tag.split('.')]
                 
                 if latest_parts > current_parts:
-                    # Если версия новее И она не была пропущена пользователем
-                    if latest_tag != self.skipped_version:
-                        self.callback(latest_tag, html_url)
+                    # Если проверка ручная - показываем всегда.
+                    # Если авто - только если версия не скипнута.
+                    if self.is_manual or latest_tag != self.skipped_version:
+                        self.found_callback(latest_tag, html_url)
+                        return
+
+            # Если дошли сюда, значит обновлений нет или они скипнуты (при автопроверке)
+            if self.is_manual:
+                self.not_found_callback()
                         
         except Exception as e:
             print(f"Update check failed: {e}")
+            # При ошибке во время ручной проверки можно тоже что-то вывести,
+            # но пока просто ничего не делаем или вызываем not_found
+            if self.is_manual:
+                self.not_found_callback()
 
 class ClipGen(ClipGenView):
-    update_found_signal = pyqtSignal(str, str) # version, url
+    update_found_signal = pyqtSignal(str, str) 
+    update_not_found_signal = pyqtSignal()    
     update_api_list_signal = pyqtSignal()
     # --- Сигналы для безопасного управления иконкой из потока ---
     update_model_list_signal = pyqtSignal() 
@@ -178,15 +190,36 @@ class ClipGen(ClipGenView):
         self.error_signal.connect(self.on_error_gui)
         self.stop_model_timer_signal.connect(self._stop_model_test_timer)
         self.update_found_signal.connect(self.on_update_found)
+        self.update_not_found_signal.connect(self.on_update_not_found)
         
-        # Запускаем проверку обновлений через 3 секунды после старта, чтобы не тормозить загрузку
-        QTimer.singleShot(3000, self.start_update_check)
+        self.check_updates_button.clicked.connect(self.check_for_updates_manual)
         
-    def start_update_check(self):
+        # Запускаем автоматическую проверку (is_manual=False по умолчанию)
+        QTimer.singleShot(3000, lambda: self.start_update_check(manual=False))
+        
+    def start_update_check(self, manual=False):
+        """Запускает поток проверки обновлений."""
+        if manual:
+             self.log_signal.emit(self.lang["logs"]["checking_updates"], "#A3BFFA")
+
         skipped = self.config.get("skipped_version", "")
-        # Передаем текущую версию, пропущенную версию и функцию-коллбэк (через сигнал для потокобезопасности)
-        checker = UpdateChecker(__version__, skipped, self.update_found_signal.emit)
+        # Передаем manual флаг и коллбэк для "не найдено"
+        checker = UpdateChecker(
+            __version__, 
+            skipped, 
+            self.update_found_signal.emit, 
+            self.update_not_found_signal.emit,
+            is_manual=manual
+        )
         checker.start()
+
+    def check_for_updates_manual(self):
+        """Слот для кнопки проверки обновлений."""
+        self.start_update_check(manual=True)
+
+    def on_update_not_found(self):
+        """Вызывается, если обновлений нет (только при ручной проверке)."""
+        self.log_signal.emit(self.lang["logs"]["update_not_found"], "#28A745") # Зеленый цвет
 
     def on_update_found(self, new_version, url):
         """Вызывается, если найдено обновление."""
@@ -194,11 +227,26 @@ class ClipGen(ClipGenView):
         self.set_tray_icon_update()
         
         # 2. Показываем диалог
-        title = "Доступно обновление ClipGen"
-        text = f"Вышла новая версия: <b>v{new_version}</b><br><br>Хотите перейти на страницу загрузки?"
+        title = self.lang["updates"]["title"]
+        text = self.lang["updates"]["message"].format(new_version=new_version)
         
-        msg = CustomMessageBox(self, title, text, yes_text="Перейти на сайт", no_text="Пропустить версию")
-        # Немного хакаем CustomMessageBox, меняя поведение кнопок под наши нужды
+        msg = CustomMessageBox(self, title, text, 
+                               yes_text=self.lang["updates"]["download_button"], 
+                               no_text=self.lang["updates"]["skip_button"])
+        
+        # --- ИЗМЕНЕНИЕ: Правильные цвета кнопок для окна обновлений ---
+        # Кнопка "Перейти на сайт" (Yes) -> Зеленая при наведении
+        msg.yes_button.setStyleSheet("""
+            QPushButton { background-color: #333333; color: #FFFFFF; border: none; border-radius: 8px; padding: 10px 0; }
+            QPushButton:hover { background-color: #28A745; } 
+        """)
+        
+        # Кнопка "Пропустить" (No) -> Красная при наведении
+        msg.no_button.setStyleSheet("""
+            QPushButton { background-color: #333333; color: #FFFFFF; border: none; border-radius: 8px; padding: 10px 0; }
+            QPushButton:hover { background-color: #C82333; }
+        """)
+        # -------------------------------------------------------------
         
         result = msg.exec_()
         
@@ -209,11 +257,8 @@ class ClipGen(ClipGenView):
             # Нажали "Перейти на сайт"
             import webbrowser
             webbrowser.open(url)
-            # Можно закрыть программу, чтобы юзер мог обновить exe
-            # self.quit_application() 
         else:
-            # Нажали "Пропустить" (Reject)
-            # Записываем эту версию в игнор
+            # Нажали "Пропустить"
             self.config["skipped_version"] = new_version
             self.save_settings()
 
@@ -435,10 +480,12 @@ class ClipGen(ClipGenView):
                     )
                     
                     # Запрос
+                    # Запрос
                     model = genai.GenerativeModel(self.config["active_model"])
                     response = model.generate_content(
                         prompt, 
-                        generation_config=GenerationConfig(temperature=0.9, max_output_tokens=500),
+                        # ИЗМЕНЕНИЕ: Увеличили лимит токенов с 500 до 2048
+                        generation_config=GenerationConfig(temperature=0.9, max_output_tokens=2048),
                         request_options={'timeout': 30}
                     )
                     
@@ -1344,34 +1391,29 @@ class ClipGen(ClipGenView):
         if language == self.config["language"]:
             return
 
-        # ----> НАЧАЛО ВАЖНОГО ИСПРАВЛЕНИЯ <----
-        # Проверяем, полностью ли загружен интерфейс.
-        # `add_hotkey_button` - одна из последних кнопок, которая создается.
-        # Если ее еще нет, значит, идет первоначальная загрузка, и мы не должны
-        # пытаться обновлять интерфейс, чтобы избежать ошибки.
         ui_ready = hasattr(self, 'add_hotkey_button') and self.add_hotkey_button is not None
 
         if not ui_ready:
-            # Если интерфейс не готов, мы просто меняем конфиг и выходим.
-            # Интерфейс сам отрисуется с правильным языком при создании.
             self.config["language"] = language
             self.save_settings()
             self.load_language()
             return
-        # ----> КОНЕЦ ВАЖНОГО ИСПРАВЛЕНИЯ <----
 
-        # Этот код будет выполняться только если пользователь сам сменил язык
-        # в уже работающем приложении.
+        # Сохраняем и загружаем
         self.config["language"] = language
         self.save_settings()
-        
-        # Загружаем новый язык
         self.load_language()
+        
+        # --- ИСПРАВЛЕНИЕ: Обновляем язык в логгере ---
+        for handler in logger.handlers:
+            if hasattr(handler, 'lang'):
+                handler.lang = self.lang
+        # ---------------------------------------------
         
         # Обновляем интерфейс
         self.reload_ui()
         
-        # Обновляем логи
+        # Обновляем логи (приветствие)
         welcome_message = self.generate_welcome_message()
         self.log_signal.emit(welcome_message, "#A3BFFA")
 
@@ -1741,17 +1783,17 @@ class ClipGen(ClipGenView):
         # Сохраняем текущую активную вкладку
         current_index = self.content_stack.currentIndex()
         
-        # Обновляем тексты кнопок
-        self.setWindowTitle(self.lang["app_title"])
+        # Обновляем заголовок окна
+        self.setWindowTitle(f"{self.lang['app_title']} v{__version__}")
+        
+        # Обновляем тексты ГЛАВНЫХ навигационных кнопок (они не пересоздаются)
         self.logs_button.setText(self.lang["tabs"]["logs"])
         self.settings_button.setText(self.lang["tabs"]["settings"])
-        self.prompts_button.setText(self.lang["tabs"]["prompts"]) # Новая кнопка
+        self.prompts_button.setText(self.lang["tabs"]["prompts"])
         self.help_button.setText(self.lang["tabs"]["help"])
         
-        # Обновляем тексты внутри логов
-        self.clear_logs_button.setText(self.lang["logs"]["clear_logs"])
-        self.copy_logs_button.setText(self.lang["logs"]["copy_logs"])
-        self.instructions_button.setText(self.lang["logs"]["instructions"])
+        # --- ИСПРАВЛЕНИЕ: Мы убрали строки с copy_logs_button и clear_logs_button ---
+        # Тексты на кнопках внутри вкладок обновятся сами при пересоздании вкладок ниже.
 
         # Очищаем старые виджеты
         while self.content_stack.count() > 0:
@@ -1759,12 +1801,13 @@ class ClipGen(ClipGenView):
             self.content_stack.removeWidget(widget)
             widget.deleteLater()
 
-        # Создаем вкладки заново (В ПРАВИЛЬНОМ ПОРЯДКЕ)
+        # Создаем вкладки заново (с новым языком)
         self.setup_log_tab()      # 0
         self.setup_settings_tab() # 1
         self.setup_prompts_tab()  # 2
         self.setup_help_tab()     # 3
         
+        # Перерисовываем кнопки действий (F1, F2...)
         self.update_buttons()
         
         # Возвращаемся на ту вкладку, которая была открыта
@@ -1774,11 +1817,9 @@ class ClipGen(ClipGenView):
             self.switch_page(0)
             
         self.update_auto_switch_button_style()
-
-    def closeEvent(self, event):
-        """Перехватывает событие закрытия окна, чтобы скрыть его в трей."""
-        event.ignore()
-        self.hide()
+        
+        # Подключаем новую кнопку проверки обновлений (так как она была пересоздана в setup_log_tab)
+        self.check_updates_button.clicked.connect(self.check_for_updates_manual)
 
 
 

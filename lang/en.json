@@ -8,7 +8,16 @@
         "action_name_label": "Action name:",
         "prompt_label": "Prompt:",
         "log_color_label": "Log color:",
-        "add_hotkey_button": "Add new action"
+        "add_hotkey_button": "Add new action",
+        "proxy_title": "Proxy (VPN bypass)",
+        "proxy_enable_label": "Enable",
+        "proxy_hint": "Format: login:password@ip:port (no http://)"
+    },
+    "updates": {
+        "title": "ClipGen Update Available",
+        "message": "A new version is available: <b>v{new_version}</b><br><br>Do you want to visit the download page?",
+        "download_button": "Go to website",
+        "skip_button": "Skip this version"
     },
     "tabs": {
         "logs": "Logs",
@@ -19,7 +28,9 @@
     "logs": {
             "key_switched": "Quota exceeded. Switched to key: {key_name}. Retrying...",
             "clear_logs": "Clear logs",
-            "copy_logs": "Copy logs",
+            "check_updates": "Check for updates", 
+            "checking_updates": "Checking for updates...",
+            "update_not_found": "You have the latest version.",
             "instructions": "Instructions",
             "stop_task": "Stop",
             "app_started": "ClipGen started",
