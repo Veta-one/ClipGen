@@ -5,6 +5,11 @@ build/
 dist/
 
 *.spec
+startup_error.txt
+error_log.txt
+
+# Добавили батник сюда
+build_clipgen.bat
 
 *.exe
 
