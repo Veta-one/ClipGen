@@ -20,7 +20,7 @@ import ctypes
 from ctypes import windll, c_bool, c_int, byref, POINTER, Structure
 from ClipGen_view import ClipGenView, CustomMessageBox
 import urllib.request
-__version__ = "2.0.0"
+__version__ = "2.0.3"
 
 def resource_path(relative_path):
     """Возвращает правильный путь к ресурсу, работает и в .py, и в .exe."""
