@@ -107,5 +107,8 @@
             "test_duration": 3.2298221588134766
         }
     ],
-    "auto_switch_api_keys": true
+    "auto_switch_api_keys": true,
+        "proxy_enabled": false,
+    "proxy_type": "HTTP",
+    "proxy_string": ""
 }

@@ -167,98 +167,89 @@ class ClipGenView(QMainWindow):
         nav_layout = QHBoxLayout(nav_widget)
         nav_layout.setContentsMargins(15, 5, 15, 5)
         
-        # Create Logs and Settings buttons
+        # Create Buttons
         self.logs_button = QPushButton(self.lang["tabs"]["logs"])
         self.logs_button.setToolTip(self.lang["tooltips"]["logs_tab"])
+        
         self.settings_button = QPushButton(self.lang["tabs"]["settings"])
         self.settings_button.setToolTip(self.lang["tooltips"]["settings_tab"])
+        
+        # --- НОВАЯ КНОПКА ---
+        self.prompts_button = QPushButton(self.lang["tabs"]["prompts"])
+        self.prompts_button.setToolTip("Настройка горячих клавиш и промптов")
+        
         self.help_button = QPushButton(self.lang["tabs"]["help"])
         self.help_button.setToolTip(self.lang["tooltips"]["help_tab"])
         
-        # Style buttons like "Clear logs" and "Copy logs" buttons
+        # Style buttons
         button_style = """
             QPushButton {
                 background-color: #333333;
                 border-radius: 8px;
                 padding: 5px 10px;
                 font-size: 12px;
-                min-width: 100px;
+                min-width: 80px;
             }
-            QPushButton:hover {
-                background-color: #444444;
-                color: #FFFFFF;
-            }
-            QPushButton:pressed {
-                background-color: #2a2a2a;
-            }
-            QPushButton[active="true"] {
-                background-color: #4A4A4A;
-            }
+            QPushButton:hover { background-color: #444444; color: #FFFFFF; }
+            QPushButton:pressed { background-color: #2a2a2a; }
+            QPushButton[active="true"] { background-color: #4A4A4A; }
         """
         
         self.logs_button.setStyleSheet(button_style)
         self.settings_button.setStyleSheet(button_style)
+        self.prompts_button.setStyleSheet(button_style)
         self.help_button.setStyleSheet(button_style)
         
-        # Connect button signals
+        # Connect button signals (Индексы: 0=Logs, 1=Settings, 2=Prompts, 3=Help)
         self.logs_button.clicked.connect(lambda: self.switch_page(0))
         self.settings_button.clicked.connect(lambda: self.switch_page(1))
-        self.help_button.clicked.connect(lambda: self.switch_page(2))
+        self.prompts_button.clicked.connect(lambda: self.switch_page(2))
+        self.help_button.clicked.connect(lambda: self.switch_page(3))
         
         # Add buttons to navigation layout
         nav_layout.addWidget(self.logs_button)
         nav_layout.addWidget(self.settings_button)
+        nav_layout.addWidget(self.prompts_button)
         nav_layout.addWidget(self.help_button)
-        nav_layout.addStretch()  # This creates the expanding empty space
+        nav_layout.addStretch()
 
-        # Новая кнопка "Поверх всех окон"
+        # Кнопка пина
         self.pin_button = QPushButton("•")
         self.pin_button.setToolTip(self.lang["tooltips"]["pin_window"])
-        self.pin_button.setFixedSize(28, 28) # Маленький размер
+        self.pin_button.setFixedSize(28, 28)
         self.pin_button.setObjectName("pinButton")
         self.pin_button.setStyleSheet("""
             QPushButton#pinButton {
-                font-size: 16px;
-                background-color: transparent;
-                border: none;
-                color: #888888; /* Серый цвет по умолчанию */
+                font-size: 16px; background-color: transparent; border: none; color: #888888;
             }
-            QPushButton#pinButton:hover {
-                color: #FFFFFF; /* Белый при наведении */
-            }
+            QPushButton#pinButton:hover { color: #A3BFFA; }
         """)
         nav_layout.addWidget(self.pin_button)
         
-        # Add navigation widget to main layout
         self.layout.addWidget(nav_widget)
+        self.layout.addWidget(self.content_stack, 1)
         
-        # Add content stack to main layout
-        self.layout.addWidget(self.content_stack, 1)  # Stretch factor 1
+        # Create pages (ВАЖЕН ПОРЯДОК!)
+        self.setup_log_tab()      # Index 0
+        self.setup_settings_tab() # Index 1
+        self.setup_prompts_tab()  # Index 2
+        self.setup_help_tab()     # Index 3
         
-        # Create pages
-        self.setup_log_tab()
-        self.setup_settings_tab()
-        self.setup_help_tab() #
-        
-        # Set initial page
         self.switch_page(0)
 
     def switch_page(self, index):
-        # Update content stack
         self.content_stack.setCurrentIndex(index)
         
         # Update button states
         self.logs_button.setProperty("active", index == 0)
         self.settings_button.setProperty("active", index == 1)
-        self.help_button.setProperty("active", index == 2) # <--- ДОБАВЛЕНО
+        self.prompts_button.setProperty("active", index == 2)
+        self.help_button.setProperty("active", index == 3)
         
-        # Force style update (required for dynamic properties)
-        self.logs_button.style().unpolish(self.logs_button)
-        self.logs_button.style().polish(self.logs_button)
-        self.settings_button.style().unpolish(self.settings_button)
-        self.settings_button.style().polish(self.settings_button)
-        self.help_button.style().unpolish(self.help_button) # <--- ДОБАВЛЕНО
-        self.help_button.style().polish(self.help_button) # <--- ДОБАВЛЕНО
+        # Force style update
+        for btn in [self.logs_button, self.settings_button, self.prompts_button, self.help_button]:
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
         
     def setup_log_tab(self):
         self.log_tab = QWidget()
@@ -433,125 +424,215 @@ class ClipGenView(QMainWindow):
         self.settings_layout.setSpacing(15)
         self.settings_layout.setContentsMargins(15, 15, 15, 15)
         
-        # API key and language selection group
-        api_key_container = QFrame()
-        api_key_container.setStyleSheet("""
-            QFrame {
-                background-color: transparent;
-                border-radius: 10px;
-                padding: 0px;
-            }
+        # --- БЛОК ПРОКСИ ---
+        proxy_group = QFrame()
+        proxy_group.setStyleSheet("background-color: #252525; border-radius: 10px; padding: 5px;")
+        proxy_layout = QVBoxLayout(proxy_group)
+        proxy_layout.setSpacing(10)
+
+        # Верхняя строка: Заголовок + Чекбокс
+        top_row = QHBoxLayout()
+        proxy_label = QLabel("Прокси (для обхода блокировок)")
+        proxy_label.setStyleSheet("border: none;")
+        top_row.addWidget(proxy_label)
+        top_row.addStretch()
+
+        from PyQt5.QtWidgets import QCheckBox, QComboBox
+        
+        # Добавляем текстовую метку
+        enable_label = QLabel("Включить")
+        enable_label.setStyleSheet("color: #FFFFFF; border: none;")
+        top_row.addWidget(enable_label)
+
+        # Создаем круглую кнопку-переключатель
+        self.proxy_enable_check = QPushButton("•")
+        self.proxy_enable_check.setFixedSize(18, 18)
+        self.proxy_enable_check.setCheckable(True)
+        self.proxy_enable_check.setChecked(self.config.get("proxy_enabled", False))
+        
+        # Функция для обновления цвета кнопки
+        def update_proxy_btn_style(checked):
+            if checked:
+                # ВАЖНО: padding: 0px убирает глобальный отступ и точка становится маленькой и по центру
+                self.proxy_enable_check.setStyleSheet("""
+                    QPushButton { 
+                        background-color: #3D8948; 
+                        color: white; 
+                        border-radius: 9px; 
+                        font-weight: bold; 
+                        font-size: 5px;
+                        margin: 0px;
+                        border: none;
+                    }
+                    QPushButton:hover { background-color: #2A6C34; }
+                """)
+            else:
+                self.proxy_enable_check.setStyleSheet("""
+                    QPushButton { 
+                        background-color: #676664; 
+                        color: #FFFFFF; 
+                        border-radius: 9px; 
+                        font-weight: bold; 
+                        font-size: 5px;
+                        margin: 0px;
+                        border: none;
+                    }
+                    QPushButton:hover { background-color: #DDDDDD; color: #000000; }
+                """)
+        
+        update_proxy_btn_style(self.proxy_enable_check.isChecked())
+        self.proxy_enable_check.toggled.connect(update_proxy_btn_style)
+        
+        self.proxy_enable_check.toggled.connect(self.toggle_proxy_enable)
+        top_row.addWidget(self.proxy_enable_check)
+        proxy_layout.addLayout(top_row)
+
+        # Нижняя строка: Тип + Поле ввода
+        input_row = QHBoxLayout()
+        input_row.setSpacing(10)
+
+        self.proxy_type_combo = QComboBox()
+        self.proxy_type_combo.addItems(["HTTP", "SOCKS5"])
+        current_type = self.config.get("proxy_type", "HTTP")
+        index = self.proxy_type_combo.findText(current_type)
+        if index >= 0: self.proxy_type_combo.setCurrentIndex(index)
+        self.proxy_type_combo.setFixedWidth(80)
+        self.proxy_type_combo.setStyleSheet("""
+            QComboBox { background-color: #333; color: white; border: 1px solid #444; border-radius: 5px; padding: 5px; }
+            QComboBox::drop-down { border: none; }
         """)
+        self.proxy_type_combo.currentTextChanged.connect(self.update_proxy_type)
+        input_row.addWidget(self.proxy_type_combo)
+
+        self.proxy_input = QLineEdit(self.config.get("proxy_string", ""))
+        self.proxy_input.setPlaceholderText("user:pass@ip:port")
+        self.proxy_input.setStyleSheet("""
+            QLineEdit { background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 5px; padding: 5px; }
+        """)
+        self.proxy_input.textChanged.connect(self.update_proxy_string)
+        input_row.addWidget(self.proxy_input)
+        proxy_layout.addLayout(input_row)
+        
+        hint = QLabel("Формат: login:password@ip:port (без http://)")
+        hint.setStyleSheet("color: #666; font-size: 10px; border: none; margin-left: 2px;")
+        proxy_layout.addWidget(hint)
+
+        self.update_proxy_ui_state(self.config.get("proxy_enabled", False))
+        self.settings_layout.addWidget(proxy_group)
+        # --- КОНЕЦ БЛОКА ПРОКСИ ---
+        
+        # --- API Keys ---
+        api_key_container = QFrame()
+        api_key_container.setStyleSheet("QFrame { background-color: transparent; border-radius: 10px; padding: 0px; }")
         api_key_main_layout = QVBoxLayout(api_key_container)
-        # --- ИЗМЕНЕНИЕ: Убираем боковые отступы, которые сжимали блок ---
         api_key_main_layout.setContentsMargins(0, 10, 0, 10)
         api_key_main_layout.setSpacing(10)
 
-        # --- Header Row: Label + Add Button + Stretch + Language ---
         header_row = QHBoxLayout()
-        
         self.api_key_label = QLabel(self.lang["settings"]["api_key_label"])
         self.api_key_label.setStyleSheet("font-size: 16px;")
         header_row.addWidget(self.api_key_label)
 
-        # --- НОВАЯ КНОПКА ДЛЯ СКРЫТИЯ/ОТОБРАЖЕНИЯ ---
         self.toggle_keys_button = QPushButton("•")
         self.toggle_keys_button.setFixedSize(18, 18)
         self.toggle_keys_button.setToolTip(self.lang["tooltips"]["toggle_keys_visibility"])
         self.toggle_keys_button.setStyleSheet("""
-            QPushButton {
-                background-color: #676664; /* Белый фон */
-                color: #FFFFFF; /* Черная точка */
-                border-radius: 9px;
-                font-weight: bold;
-                font-size: 10px;
-            }
+            QPushButton { background-color: #676664; color: #FFFFFF; border-radius: 9px; font-weight: bold; font-size: 10px; }
             QPushButton:hover { background-color: #DDDDDD; }
         """)
         self.toggle_keys_button.clicked.connect(self.toggle_api_key_visibility)
         header_row.addWidget(self.toggle_keys_button)
         
-        # --- Кнопка авто-переключения ключей ---
         self.auto_switch_button = QPushButton("•")
         self.auto_switch_button.setFixedSize(18, 18)
         self.auto_switch_button.setToolTip(self.lang["tooltips"]["auto_switch_keys"])
         self.auto_switch_button.clicked.connect(self.toggle_auto_switch)
         header_row.addWidget(self.auto_switch_button)
 
-        # Add Key Button (Green "•")
         self.add_key_button = QPushButton("•")
         self.add_key_button.setFixedSize(18, 18)
         self.add_key_button.setToolTip(self.lang["tooltips"]["add_api_key"])
         self.add_key_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3D8948;
-                color: white;
-                border-radius: 9px;
-                font-weight: bold;
-                font-size: 10px;
-            }
+            QPushButton { background-color: #3D8948; color: white; border-radius: 9px; font-weight: bold; font-size: 10px; }
             QPushButton:hover { background-color: #2A6C34; }
         """)
         self.add_key_button.clicked.connect(self.add_api_key_entry)
         header_row.addWidget(self.add_key_button)
-
         header_row.addStretch()
 
-        # Language selection
+        # Language
         language_layout = QHBoxLayout()
         self.language_label = QLabel(self.lang["settings"]["language_label"])
         language_layout.addWidget(self.language_label)
-        
         self.language_combo = QComboBox()
         self.language_combo.setToolTip(self.lang["tooltips"]["language_selection"])
         self.language_combo.setMinimumWidth(100)
-        self.language_combo.setStyleSheet("""
-            border-radius: 8px; 
-            border: 1px solid #444444;
-            padding: 5px;
-            background-color: #2a2a2a;
-            color: white;
-        """)
+        self.language_combo.setStyleSheet("border-radius: 8px; border: 1px solid #444444; padding: 5px; background-color: #2a2a2a; color: white;")
         for lang in self.get_available_languages():
             self.language_combo.addItem(lang)
         current_index = self.language_combo.findText(self.config.get("language", "en"))
-        if current_index >= 0:
-            self.language_combo.setCurrentIndex(current_index)
+        if current_index >= 0: self.language_combo.setCurrentIndex(current_index)
         self.language_combo.currentTextChanged.connect(self.update_language)
         language_layout.addWidget(self.language_combo)
-        
         header_row.addLayout(language_layout)
+        
         api_key_main_layout.addLayout(header_row)
 
-        # --- API Keys List Area ---
         self.api_keys_layout = QVBoxLayout()
         self.api_keys_layout.setSpacing(5)
         self.key_radio_group = QButtonGroup(self)
         self.key_radio_group.buttonClicked[int].connect(self.set_active_api_key_index)
-        
         self.refresh_api_key_list()
         
         api_key_main_layout.addLayout(self.api_keys_layout)
         self.settings_layout.addWidget(api_key_container)
 
-        # --- ВЫЗОВ НОВОГО МЕТОДА ДЛЯ ОТРИСОВКИ БЛОКА МОДЕЛЕЙ ---
+        # --- Models ---
         self.setup_model_selection_ui()
-        # --------------------------------------------------------
         
-        # Hotkeys title
+        self.settings_layout.addStretch()
+        self.settings_scroll = QScrollArea()
+        self.settings_scroll.setWidget(self.settings_tab)
+        self.settings_scroll.setWidgetResizable(True)
+        self.settings_scroll.setStyleSheet("""
+            QScrollArea { background-color: transparent; border: none; }
+            QScrollBar:vertical { background: #1e1e1e; width: 4px; margin: 0px; border-radius: 2px; }
+            QScrollBar::handle:vertical { background: #666666; min-height: 20px; border-radius: 2px; }
+            QWidget#qt_scrollarea_viewport { background-color: transparent; }
+        """)
+
+        self.content_stack.addWidget(self.settings_scroll)
+        # Инициализация кнопки автосмены
+        if hasattr(self, 'config'):
+             is_active = self.config.get("auto_switch_api_keys", False)
+             color = "#5085D0" if is_active else "#676664"
+             self.auto_switch_button.setStyleSheet(f"""
+                QPushButton {{ background-color: {color}; color: #FFFFFF; border-radius: 9px; font-weight: bold; font-size: 10px; }}
+                QPushButton:hover {{ background-color: #DDDDDD; color: #000000; }}
+            """)
+        
+    def setup_prompts_tab(self):
+        """Создает вкладку с настройкой промптов и горячих клавиш"""
+        self.prompts_tab = QWidget()
+        self.prompts_tab.setStyleSheet("background-color: #1e1e1e;")
+        self.prompts_layout = QVBoxLayout(self.prompts_tab)
+        self.prompts_layout.setSpacing(15)
+        self.prompts_layout.setContentsMargins(15, 15, 15, 15)
+
+        # Заголовок
         self.hotkeys_title = QLabel(self.lang["settings"]["hotkeys_title"])
         self.hotkeys_title.setStyleSheet("font-size: 16px;")
-        self.settings_layout.addWidget(self.hotkeys_title)
+        self.prompts_layout.addWidget(self.hotkeys_title)
         
-        # --- Создаем специальный layout-контейнер для горячих клавиш ---
+        # Контейнер для списка
         self.hotkeys_list_layout = QVBoxLayout()
         self.hotkeys_list_layout.setSpacing(10)
-        self.settings_layout.addLayout(self.hotkeys_list_layout)
+        self.prompts_layout.addLayout(self.hotkeys_list_layout)
 
-        # Первичное заполнение списка горячих клавиш
+        # Заполнение списка (Метод refresh_hotkey_list должен уже существовать)
         self.refresh_hotkey_list()
         
-        # Buttons for adding/removing hotkeys
+        # Кнопка добавления
         hotkey_buttons_layout = QHBoxLayout()
         self.add_hotkey_button = QPushButton(self.lang["settings"]["add_hotkey_button"])
         self.add_hotkey_button.setToolTip(self.lang["tooltips"]["add_hotkey"])
@@ -560,68 +641,54 @@ class ClipGenView(QMainWindow):
                 background-color: #3D8948;
                 color: white;
                 border-radius: 8px;
-                padding: 5px 10px;
+                padding: 8px 15px;
+                font-weight: bold;
             }
-            QPushButton:hover {
-                background-color: #2A6C34;
-            }
+            QPushButton:hover { background-color: #2A6C34; }
         """)
         self.add_hotkey_button.clicked.connect(self.add_new_hotkey)
         hotkey_buttons_layout.addWidget(self.add_hotkey_button)
         hotkey_buttons_layout.addStretch()
-        self.settings_layout.addLayout(hotkey_buttons_layout)
+        self.prompts_layout.addLayout(hotkey_buttons_layout)
         
-        self.settings_layout.addStretch()
-        self.settings_scroll = QScrollArea()
-        self.settings_scroll.setWidget(self.settings_tab)
-        self.settings_scroll.setWidgetResizable(True)
+        self.prompts_layout.addStretch()
         
-        self.settings_scroll.setStyleSheet("""
-            QScrollArea {
-                background-color: transparent; 
-                border: none;
-            }
-            QScrollBar:vertical {
-                background: #1e1e1e;
-                width: 4px;
-                margin: 0px;
-                border-radius: 2px;
-            }
-            QScrollBar::handle:vertical {
-                background: #666666;
-                min-height: 20px;
-                border-radius: 2px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #888888;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { 
-                background: none; 
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { 
-                background: none; 
-            }
-            QWidget#qt_scrollarea_viewport {
-                background-color: transparent;
-            }
+        # Скролл
+        self.prompts_scroll = QScrollArea()
+        self.prompts_scroll.setWidget(self.prompts_tab)
+        self.prompts_scroll.setWidgetResizable(True)
+        self.prompts_scroll.setStyleSheet("""
+            QScrollArea { background-color: transparent; border: none; }
+            QScrollBar:vertical { background: #1e1e1e; width: 4px; border-radius: 2px; }
+            QScrollBar::handle:vertical { background: #666666; min-height: 20px; border-radius: 2px; }
+            QWidget#qt_scrollarea_viewport { background-color: transparent; }
         """)
 
-        self.content_stack.addWidget(self.settings_scroll)
-        # Инициализация цвета кнопки авто-смены (если есть доступ к конфигу)
-        if hasattr(self, 'config'):
-             is_active = self.config.get("auto_switch_api_keys", False)
-             color = "#5085D0" if is_active else "#676664"
-             self.auto_switch_button.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {color};
-                    color: #FFFFFF;
-                    border-radius: 9px;
-                    font-weight: bold;
-                    font-size: 10px;
-                }}
-                QPushButton:hover {{ background-color: #DDDDDD; color: #000000; }}
-            """)
+        self.content_stack.addWidget(self.prompts_scroll)
+
+    def update_proxy_ui_state(self, enabled):
+        """Блокирует/разблокирует поля ввода"""
+        self.proxy_type_combo.setEnabled(enabled)
+        self.proxy_input.setEnabled(enabled)
+        # Делаем визуально прозрачнее, если выключено
+        opacity = "1.0" if enabled else "0.5"
+        self.proxy_type_combo.setStyleSheet(self.proxy_type_combo.styleSheet() + f"QComboBox {{ opacity: {opacity}; }}")
+        self.proxy_input.setStyleSheet(self.proxy_input.styleSheet() + f"QLineEdit {{ opacity: {opacity}; }}")
+
+    # Эти методы мы переопределим в ClipGen.py для логики, 
+    # но здесь они нужны, чтобы интерфейс не падал
+    def toggle_proxy_enable(self, checked):
+        self.config["proxy_enabled"] = checked
+        self.update_proxy_ui_state(checked)
+        self.save_settings()
+
+    def update_proxy_type(self, text):
+        self.config["proxy_type"] = text
+        self.save_settings()
+
+    def update_proxy_string(self, text):
+        self.config["proxy_string"] = text.strip()
+        self.save_settings()
 
     def toggle_api_key_visibility(self):
         """Переключает видимость API ключей и сохраняет состояние."""
@@ -1469,6 +1536,11 @@ class ClipGenView(QMainWindow):
         """Устанавливает красную иконку ошибки."""
         # Используем финальную версию с белым восклицательным знаком
         self.tray_icon.setIcon(self._create_dynamic_icon("#F33100", "!", text_color="#FFFFFF"))
+
+    def set_tray_icon_update(self):
+        """Устанавливает синюю иконку уведомления."""
+        # Яркий синий цвет (#007AFF - как в iOS)
+        self.tray_icon.setIcon(self._create_dynamic_icon("#007AFF", "!", text_color="#FFFFFF"))
 
     def flash_tray_icon_warning(self):
         """Мигает красным два раза, затем возвращает желтую (рабочую) иконку."""

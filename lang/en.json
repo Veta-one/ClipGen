@@ -13,6 +13,7 @@
     "tabs": {
         "logs": "Logs",
         "settings": "Settings",
+        "prompts": "Prompts", 
         "help": "Help"
     },
     "logs": {
@@ -84,6 +85,7 @@
         "gemini_404_model_not_found": "Error: Model '{model_name}' not found. Please check the name in settings.",
         "gemini_429_quota_exceeded": "Error: API request limit exceeded",
         "gemini_400_invalid_key": "Error: Invalid API key. Please check the key selected in settings.",
+        "gemini_location_error": "Error: User location is not supported. Check your VPN or Proxy settings.",
         "gemini_400_invalid_characters": "Error: API key contains invalid characters (e.g., non-Latin symbols).",
         "gemini_unknown_error": "Unknown API error: {error_details}"
     },

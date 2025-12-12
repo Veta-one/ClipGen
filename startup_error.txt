@@ -1,0 +1,13 @@
+
+
+--- 2025-12-12 00:14:40 ---
+Critical startup error: super-class __init__() of type ClipGen was never called
+Traceback (most recent call last):
+  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen.py", line 1789, in <module>
+    window = ClipGen()
+  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen.py", line 89, in __init__
+    self.apply_proxy()
+    ~~~~~~~~~~~~~~~~^^
+  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen.py", line 197, in apply_proxy
+    flags = self.windowFlags()
+RuntimeError: super-class __init__() of type ClipGen was never called

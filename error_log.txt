@@ -1,0 +1,9 @@
+
+
+--- 2025-12-12 11:59:39 ---
+Exception type: KeyboardInterrupt
+Exception value: 
+Traceback:
+  File "C:\Projects\Work\Scripts\ClipGen2\ClipGen\windows\ClipGen_last 01,12\ClipGen_last\ClipGen.py", line 296, in on_tray_icon_activated
+    def on_tray_icon_activated(self, reason):
+    
