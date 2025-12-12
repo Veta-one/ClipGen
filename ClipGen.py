@@ -1,3 +1,4 @@
+import winreg
 import os
 import sys
 import time
@@ -19,7 +20,7 @@ import ctypes
 from ctypes import windll, c_bool, c_int, byref, POINTER, Structure
 from ClipGen_view import ClipGenView, CustomMessageBox
 import urllib.request
-__version__ = "2.0.2"
+__version__ = "2.0.0"
 
 def resource_path(relative_path):
     """Возвращает правильный путь к ресурсу, работает и в .py, и в .exe."""
@@ -78,7 +79,7 @@ class UpdateChecker(threading.Thread):
         super().__init__()
         self.current_version = current_version
         self.skipped_version = skipped_version
-        self.found_callback = found_callback
+        self.found_callback = found_callback # <--- Запоминаем как found_callback
         self.not_found_callback = not_found_callback
         self.is_manual = is_manual
         self.daemon = True
@@ -91,30 +92,27 @@ class UpdateChecker(threading.Thread):
                 
                 latest_tag = data.get("tag_name", "").replace("v", "")
                 html_url = data.get("html_url", "")
+                body = data.get("body", "") 
                 
                 current_parts = [int(x) for x in self.current_version.split('.')]
                 latest_parts = [int(x) for x in latest_tag.split('.')]
                 
                 if latest_parts > current_parts:
-                    # Если проверка ручная - показываем всегда.
-                    # Если авто - только если версия не скипнута.
                     if self.is_manual or latest_tag != self.skipped_version:
-                        self.found_callback(latest_tag, html_url)
+                        # ИСПРАВЛЕНИЕ: используем правильное имя переменной
+                        self.found_callback(latest_tag, html_url, body)
                         return
 
-            # Если дошли сюда, значит обновлений нет или они скипнуты (при автопроверке)
             if self.is_manual:
                 self.not_found_callback()
                         
         except Exception as e:
             print(f"Update check failed: {e}")
-            # При ошибке во время ручной проверки можно тоже что-то вывести,
-            # но пока просто ничего не делаем или вызываем not_found
             if self.is_manual:
                 self.not_found_callback()
 
 class ClipGen(ClipGenView):
-    update_found_signal = pyqtSignal(str, str) 
+    update_found_signal = pyqtSignal(str, str, str) # version, url, notes 
     update_not_found_signal = pyqtSignal()    
     update_api_list_signal = pyqtSignal()
     # --- Сигналы для безопасного управления иконкой из потока ---
@@ -163,6 +161,12 @@ class ClipGen(ClipGenView):
         self.listener_thread = threading.Thread(target=self.hotkey_listener, args=(self.queue,))
         self.listener_thread.start()
         self.check_queue()
+
+        # Подключаем логику к кнопке автозагрузки
+        self.autostart_button.clicked.connect(self.toggle_autostart)
+        
+        # Проверяем реестр и выставляем правильное положение кнопки
+        self.sync_autostart_ui()
         
         # Configuring a log handler
         gui_handler = self.create_log_handler()
@@ -193,10 +197,71 @@ class ClipGen(ClipGenView):
         self.update_not_found_signal.connect(self.on_update_not_found)
         
         self.check_updates_button.clicked.connect(self.check_for_updates_manual)
+        # Восстанавливаем состояние кнопки автозагрузки и подключаем её заново
+        # (так как вкладка настроек была пересоздана)
+        self.autostart_button.clicked.connect(self.toggle_autostart)
+        self.sync_autostart_ui()
         
         # Запускаем автоматическую проверку (is_manual=False по умолчанию)
         QTimer.singleShot(3000, lambda: self.start_update_check(manual=False))
         
+    def is_autostart_enabled(self):
+        """Проверяет, есть ли программа в автозагрузке реестра."""
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_READ)
+            try:
+                winreg.QueryValueEx(key, "ClipGen")
+                return True
+            except FileNotFoundError:
+                return False
+            finally:
+                winreg.CloseKey(key)
+        except Exception as e:
+            print(f"Autostart check error: {e}")
+            return False
+
+    def toggle_autostart(self, checked):
+        """Добавляет или удаляет программу из автозагрузки."""
+        # Получаем путь к текущему исполняемому файлу
+        if getattr(sys, 'frozen', False):
+            # Если запущено как exe
+            exe_path = sys.executable
+        else:
+            # Если запущено как скрипт (для тестов), не добавляем python.exe в автозагрузку пользователя,
+            # но логику оставим для примера (или просто return, если не хочешь засорять реестр при разработке)
+            print("Autostart is disabled in development mode (.py)")
+            return
+
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        app_name = "ClipGen"
+
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_WRITE)
+            if checked:
+                # Добавляем (путь в кавычках на случай пробелов)
+                winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{exe_path}"')
+                logger.info("Added to Windows startup")
+            else:
+                # Удаляем
+                try:
+                    winreg.DeleteValue(key, app_name)
+                    logger.info("Removed from Windows startup")
+                except FileNotFoundError:
+                    pass # Уже удалено
+            winreg.CloseKey(key)
+        except Exception as e:
+            logger.error(f"Failed to change autostart: {e}")
+            # Если ошибка, возвращаем кнопку в прежнее состояние визуально (опционально)
+
+    def sync_autostart_ui(self):
+        """Синхронизирует кнопку с реальным состоянием в реестре."""
+        is_enabled = self.is_autostart_enabled()
+        # Блокируем сигналы, чтобы не вызвать toggle_autostart при установке состояния
+        self.autostart_button.blockSignals(True)
+        self.autostart_button.setChecked(is_enabled)
+        self.update_autostart_btn_style(is_enabled)
+        self.autostart_button.blockSignals(False)
+
     def start_update_check(self, manual=False):
         """Запускает поток проверки обновлений."""
         if manual:
@@ -221,46 +286,82 @@ class ClipGen(ClipGenView):
         """Вызывается, если обновлений нет (только при ручной проверке)."""
         self.log_signal.emit(self.lang["logs"]["update_not_found"], "#28A745") # Зеленый цвет
 
-    def on_update_found(self, new_version, url):
+    def on_update_found(self, new_version, url, notes):
         """Вызывается, если найдено обновление."""
-        # 1. Меняем иконку на синюю
         self.set_tray_icon_update()
         
-        # 2. Показываем диалог
         title = self.lang["updates"]["title"]
-        text = self.lang["updates"]["message"].format(new_version=new_version)
         
-        msg = CustomMessageBox(self, title, text, 
+        # Формируем HTML сообщение
+        header = self.lang["updates"]["message"].format(new_version=new_version)
+        
+        # Добавляем список изменений, если есть
+        notes_html = ""
+        if notes:
+            # Превращаем Markdown в HTML (простая версия)
+            formatted_notes = notes.replace("\r\n", "<br>").replace("\n", "<br>")
+            # Жирный текст
+            while "**" in formatted_notes:
+                formatted_notes = formatted_notes.replace("**", "<b>", 1).replace("**", "</b>", 1)
+            # Заголовки (### Title) делаем цветными и крупными
+            import re
+            formatted_notes = re.sub(r'### (.*?)(<br>|$)', r'<h3 style="color: #A3BFFA; margin: 10px 0 5px 0;">\1</h3>', formatted_notes)
+            # Пункты списка (* Item)
+            formatted_notes = formatted_notes.replace("* ", "&nbsp;&nbsp;• ")
+
+            notes_html = f"<hr style='border: 1px solid #444; margin: 10px 0;'><div style='font-family: sans-serif;'>{formatted_notes}</div>"
+
+        full_text = f"{header}{notes_html}"
+        
+        # Создаем и настраиваем диалог
+        msg = CustomMessageBox(self, title, full_text, 
                                yes_text=self.lang["updates"]["download_button"], 
                                no_text=self.lang["updates"]["skip_button"])
         
-        # --- ИЗМЕНЕНИЕ: Правильные цвета кнопок для окна обновлений ---
-        # Кнопка "Перейти на сайт" (Yes) -> Зеленая при наведении
         msg.yes_button.setStyleSheet("""
             QPushButton { background-color: #333333; color: #FFFFFF; border: none; border-radius: 8px; padding: 10px 0; }
             QPushButton:hover { background-color: #28A745; } 
         """)
         
-        # Кнопка "Пропустить" (No) -> Красная при наведении
         msg.no_button.setStyleSheet("""
             QPushButton { background-color: #333333; color: #FFFFFF; border: none; border-radius: 8px; padding: 10px 0; }
             QPushButton:hover { background-color: #C82333; }
         """)
-        # -------------------------------------------------------------
         
         result = msg.exec_()
         
-        # 3. Возвращаем обычную иконку в любом случае
         self.set_tray_icon_default()
         
         if result == QDialog.Accepted:
-            # Нажали "Перейти на сайт"
             import webbrowser
             webbrowser.open(url)
         else:
-            # Нажали "Пропустить"
             self.config["skipped_version"] = new_version
             self.save_settings()
+
+    def format_release_notes(self, markdown_text):
+        """Простая конвертация Markdown из GitHub в HTML для Qt."""
+        if not markdown_text:
+            return ""
+            
+        html = markdown_text
+        # Экранирование
+        html = html.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        
+        # Заголовки (### )
+        html = html.replace("### ", "<h3 style='color: #A3BFFA; margin-top: 10px;'>")
+        # Закрывать теги h3 сложно простым replace, поэтому используем хитрость:
+        # просто делаем текст жирным и цветным, Qt это поймет.
+        # Или проще: заменим переносы строк
+        
+        # Простая замена для списков и жирного текста
+        html = html.replace("\r\n", "<br>").replace("\n", "<br>")
+        html = html.replace("**", "<b>").replace("**", "</b>") # Qt поймет парность сам или заменим по очереди
+        
+        # Списки
+        html = html.replace("* ", "• ")
+        
+        return html
 
     # --- PROXY HANDLERS ---
     def toggle_proxy_enable(self, checked):
@@ -690,71 +791,150 @@ class ClipGen(ClipGenView):
                     self.log_signal.emit(step, "#FFFFFF")
             except Exception as signal_error:
                 print(f"Ошибка при попытке вывести сообщение об ошибке: {signal_error}")
+
+    def recursive_update(self, base_dict, user_dict):
+        """
+        Рекурсивно обновляет base_dict значениями из user_dict.
+        Если ключа нет в user_dict, он остается из base_dict (новое значение).
+        Если ключ есть в user_dict, он берется оттуда (старое/кастомное значение).
+        """
+        for key, value in user_dict.items():
+            if key in base_dict:
+                if isinstance(value, dict) and isinstance(base_dict[key], dict):
+                    self.recursive_update(base_dict[key], value)
+                else:
+                    base_dict[key] = value
+        return base_dict
         
     def load_language(self):
-        """Loads language file according to settings"""
-        language = self.config.get("language", "en")  # Changed default to 'en'
+        """Загружает язык, объединяя встроенный файл (свежий) с файлом пользователя."""
+        language = self.config.get("language", "en")
         
-        # Create language folder if it doesn't exist
-        os.makedirs("lang", exist_ok=True)
+        internal_path = resource_path(os.path.join("lang", f"{language}.json"))
+
+        external_dir = "lang"
+        external_path = os.path.join(external_dir, f"{language}.json")
         
-        # Path to language file
-        lang_file = resource_path(os.path.join("lang", f"{language}.json"))
-        
-        # Check if file exists
-        if not os.path.exists(lang_file):
-            # If file not found, create it from the template
-            if language == "en":
-                self.lang = self.create_default_english_lang()
-            else:
-                # For any other language, just use English as fallback
-                # This way user needs to manually create/add other language files
-                self.lang = self.create_default_english_lang()
-                
-            # Save the file
-            with open(lang_file, "w", encoding="utf-8") as f:
-                json.dump(self.lang, f, ensure_ascii=False, indent=4)
-        else:
-            # Load existing file
+        os.makedirs(external_dir, exist_ok=True)
+
+        loaded_data = {}
+
+        if os.path.exists(internal_path):
             try:
-                with open(lang_file, "r", encoding="utf-8") as f:
-                    self.lang = json.load(f)
+                with open(internal_path, "r", encoding="utf-8") as f:
+                    loaded_data = json.load(f)
             except Exception as e:
-                print(f"Error loading language file: {e}")
-                self.lang = self.create_default_english_lang()
+                print(f"Error loading internal lang: {e}")
+                loaded_data = self.create_default_english_lang()
+        else:
+            loaded_data = self.create_default_english_lang()
+
+        if os.path.exists(external_path):
+            try:
+                with open(external_path, "r", encoding="utf-8") as f:
+                    user_data = json.load(f)
+                
+                self.recursive_update(loaded_data, user_data)
+                
+            except Exception as e:
+                print(f"Error merging user lang file: {e}")
+        
+        try:
+            with open(external_path, "w", encoding="utf-8") as f:
+                json.dump(loaded_data, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"Error saving updated lang file: {e}")
+
+        self.lang = loaded_data
     
     def create_default_english_lang(self):
         """Creates a dictionary with default English strings"""
         return {
             "app_title": "ClipGen",
             "settings": {
+                "autostart_label": "Run at Windows startup",
                 "api_key_label": "Gemini API Key:",
+                "gemini_models_label": "Gemini Models:",
                 "language_label": "Language:",
                 "hotkeys_title": "Hotkey Settings",
                 "action_name_label": "Action name:",
                 "prompt_label": "Prompt:",
                 "log_color_label": "Log color:",
-                "add_hotkey_button": "Add new action"
+                "add_hotkey_button": "Add new action",
+                "proxy_title": "Proxy (VPN bypass)",
+                "proxy_enable_label": "Enable",
+                "proxy_hint": "Format: login:password@ip:port (no http://)"
+            },
+            "updates": {
+                "title": "ClipGen Update Available",
+                "message": "A new version is available: <b>v{new_version}</b><br><br>Do you want to visit the download page?",
+                "download_button": "Go to website",
+                "skip_button": "Skip this version"
             },
             "tabs": {
                 "logs": "Logs",
-                "settings": "Settings"
+                "settings": "Settings",
+                "prompts": "Prompts", 
+                "help": "Help"
             },
             "logs": {
-                "clear_logs": "Clear logs",
-                "copy_logs": "Copy logs",
-                "instructions": "Instructions",
-                "app_started": "ClipGen started",
-                "execution_time": "Executed in {seconds:.2f} seconds"
-            },
+                    "key_switched": "Quota exceeded. Switched to key: {key_name}. Retrying...",
+                    "clear_logs": "Clear logs",
+                    "check_updates": "Check for updates", 
+                    "checking_updates": "Checking for updates...",
+                    "update_not_found": "You have the latest version.",
+                    "instructions": "Instructions",
+                    "stop_task": "Stop",
+                    "app_started": "ClipGen started",
+                    "execution_time": "Executed in {seconds:.2f} sec.",
+                    "stop_request_sent": "Stop request sent...",
+                    "task_cancelled": "Task cancelled by user.",
+                    "task_cancelled_during_request": "Task cancelled during request execution."
+                },
             "dialogs": {
                 "confirm_delete_title": "Confirm Deletion",
                 "confirm_delete_message": "Are you sure you want to delete the action '{action_name}'?",
-                "confirm_delete_api_key_message": "Are you sure you want to delete the API key '{key_identifier}'?", # <--- ДОБАВЛЕНА ЭТА СТРОКА
+                "confirm_delete_api_key_message": "Are you sure you want to delete the API key '{key_identifier}'?",
                 "duplicate_hotkey_title": "Duplicate Hotkey",
-                "duplicate_hotkey_message": "The combination {combo} is already used by another action."
+                "duplicate_hotkey_message": "The combination {combo} is already used by another action.",
+                "confirm_delete_model_message": "Are you sure you want to delete the model '{model_name}'?",
+                "yes_button": "Yes",
+                "no_button": "No"
             },
+            "tooltips": {
+                    "auto_switch_keys": "Auto-switch keys on limit (429)",
+                    "logs_tab": "Switch to the logs tab",
+                    "settings_tab": "Switch to the settings tab",
+                    "help_tab": "Switch to the help tab",
+                    "clear_logs": "Clear all log entries",
+                    "copy_logs": "Copy the entire log to the clipboard",
+                    "instructions": "Show a brief usage instruction",
+                    "stop_task": "Stop the current Gemini request or test",
+                    "toggle_keys_visibility": "Show/hide API keys",
+                    "add_api_key": "Add a new API key",
+                    "language_selection": "Select the interface language",
+                    "select_api_key": "Make this key active",
+                    "api_usage_tooltip": "Number of requests in the last 24 hours",
+                    "test_api_key": "Check if this key is working",
+                    "delete_api_key": "Delete this API key",
+                    "add_model": "Add a new Gemini model",
+                    "select_model": "Make this model active",
+                    "model_test_time_tooltip": "Model response time (in seconds)",
+                    "delete_model": "Delete this model",
+                    "hotkey_input": "Click to change the hotkey combination",
+                    "color_picker": "Select a color for the logs of this action",
+                    "delete_hotkey": "Delete this action",
+                    "add_hotkey": "Add a new hotkey action",
+                    "pin_window": "Pin/Unpin window on top",
+                    "main_action_button": "Click to perform this action ({combination})"
+                },
             "errors": {
+                "all_keys_exhausted": "All available keys checked — limits exceeded everywhere. Check the model used in settings!",
+                "gemini_safety_error": "Error: The request was blocked by safety filters.",
+                "gemini_connection_error": "Error: Connection to Google server failed. Check your internet or VPN.",
+                "gemini_timeout_error": "Error: The request timed out. The model is overloaded.",
+                "gemini_service_unavailable": "Error 503: Google service is temporarily unavailable. Try again later.",
+                "gemini_quota_exceeded_friendly": "Error 429: API key limit exceeded. Wait a minute or switch keys.",
                 "api_key_not_set": "API key not configured",
                 "empty_clipboard": "Clipboard is empty",
                 "no_image_clipboard": "Clipboard does not contain an image",
@@ -764,7 +944,13 @@ class ClipGen(ClipGenView):
                 "retry_error": "Error during request (attempt {attempt}/{max_attempts}): {error}",
                 "all_attempts_failed": "All request attempts failed",
                 "gemini_error": "Error during Gemini request: {error}",
-                "empty_clipboard_attempts": "Clipboard is empty after {attempts} copy attempts"
+                "empty_clipboard_attempts": "Clipboard is empty after {attempts} copy attempts",
+                "gemini_404_model_not_found": "Error: Model '{model_name}' not found. Please check the name in settings.",
+                "gemini_429_quota_exceeded": "Error: API request limit exceeded",
+                "gemini_400_invalid_key": "Error: Invalid API key. Please check the key selected in settings.",
+                "gemini_location_error": "Error: User location is not supported. Check your VPN or Proxy settings.",
+                "gemini_400_invalid_characters": "Error: API key contains invalid characters (e.g., non-Latin symbols).",
+                "gemini_unknown_error": "Unknown API error: {error_details}"
             },
             "log_messages": {
                 "processing_start": "Starting Gemini request processing",
@@ -828,6 +1014,7 @@ class ClipGen(ClipGenView):
                 "Sunday"
             ],
             "welcome_fallback": "{greeting}! ClipGen is ready to help you today, {formatted_date}.",
+            "welcome_back": "Welcome back!",
             "welcome_error": "Welcome! There was an error connecting to the Gemini API.",
             "hotkeys_info": "Available hotkeys:",
             "instruction_fallback": {
@@ -1859,10 +2046,6 @@ if __name__ == "__main__":
         print("DEBUG: Создание главного окна ClipGen.")
         window = ClipGen()
         print("DEBUG: Объект окна успешно создан.")
-        
-        # Применяем темную тему для заголовка Windows
-        window.set_dark_titlebar(int(window.winId()))
-        print("DEBUG: Установлена темная тема заголовка.")
         
         print("DEBUG: Отображение окна (window.show()).")
         window.show()

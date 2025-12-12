@@ -53,9 +53,9 @@ if errorlevel 1 (
     :: Переименовываем файл, чтобы Windows сбросил кэш иконки и показал новую
     echo Renaming file to force icon update...
     cd dist
-    if exist "ClipGen.exe" ren "ClipGen.exe" "ClipGen_v2.exe"
+    if exist "ClipGen.exe" ren "ClipGen.exe" "ClipGen.exe"
     echo.
-    echo Done! Run "dist\ClipGen_v2.exe" to test.
+    echo Done! Run "dist\ClipGen.exe" to test.
 )
 
 echo.

@@ -1,6 +1,7 @@
 {
     "app_title": "ClipGen",
     "settings": {
+        "autostart_label": "Run at Windows startup",
         "api_key_label": "Gemini API Key:",
         "gemini_models_label": "Gemini Models:",
         "language_label": "Language:",

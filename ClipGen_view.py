@@ -27,52 +27,51 @@ class CustomMessageBox(QDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
-        
-        self.setMinimumWidth(400) 
+        self.setMinimumWidth(450) # Сделали еще чуть шире
+        self.setMinimumHeight(300) # И выше, чтобы влез текст
 
-        # Применяем темную тему к заголовку
         parent.set_dark_titlebar(int(self.winId()))
 
-        # Главный слой
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
 
-        # Текст сообщения
-        message_label = QLabel(text)
-        message_label.setWordWrap(True) # Автоматический перенос текста
-        main_layout.addWidget(message_label)
+        # --- ИЗМЕНЕНИЕ: Используем QTextBrowser вместо QLabel для скролла ---
+        self.message_area = QTextBrowser()
+        self.message_area.setHtml(text)
+        self.message_area.setOpenExternalLinks(True)
+        self.message_area.setStyleSheet("""
+            QTextBrowser {
+                background-color: transparent;
+                color: #FFFFFF;
+                border: none;
+                font-size: 13px;
+            }
+        """)
+        main_layout.addWidget(self.message_area)
+        # --------------------------------------------------------------------
 
-        # Слой для кнопок
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
 
-        # Кнопка "ДА" (или "ОК")
         self.yes_button = QPushButton(yes_text)
-        self.yes_button.setObjectName("acceptButton") # Для стилизации
+        self.yes_button.setObjectName("acceptButton")
         self.yes_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.yes_button.clicked.connect(self.accept) # Возвращает 1
+        self.yes_button.clicked.connect(self.accept)
         button_layout.addWidget(self.yes_button)
 
-        # Кнопка "НЕТ" (или "Отмена")
         self.no_button = QPushButton(no_text)
-        self.no_button.setObjectName("rejectButton") # Для стилизации
+        self.no_button.setObjectName("rejectButton")
         self.no_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.no_button.clicked.connect(self.reject) # Возвращает 0
+        self.no_button.clicked.connect(self.reject)
         button_layout.addWidget(self.no_button)
         
         main_layout.addLayout(button_layout)
 
-        # Применение стилей
         self.setStyleSheet("""
             QDialog {
                 background-color: #252525;
                 border: 1px solid #444444;
-            }
-            QLabel {
-                color: #FFFFFF;
-                font-size: 12px; 
-                background-color: transparent;
             }
             QPushButton {
                 background-color: #333333;
@@ -83,11 +82,16 @@ class CustomMessageBox(QDialog):
                 padding: 10px 0;
                 min-height: 16px;
             }
-            QPushButton#rejectButton:hover {
-                background-color: #3D8948; /* Зеленый */
+            /* Стили для скроллбара внутри текста */
+            QScrollBar:vertical {
+                background: #252525;
+                width: 6px;
+                margin: 0px;
             }
-            QPushButton#acceptButton:hover {
-                background-color: #C82333; /* Красный */
+            QScrollBar::handle:vertical {
+                background: #555555;
+                min-height: 20px;
+                border-radius: 3px;
             }
         """)
 
@@ -428,6 +432,67 @@ class ClipGenView(QMainWindow):
         self.settings_layout.setSpacing(15)
         self.settings_layout.setContentsMargins(15, 15, 15, 15)
         
+        # --- НОВЫЙ БЛОК: Автозагрузка ---
+        autostart_group = QFrame()
+        autostart_group.setStyleSheet("background-color: #252525; border-radius: 10px; padding: 5px;")
+        autostart_layout = QHBoxLayout(autostart_group)
+        autostart_layout.setContentsMargins(10, 5, 10, 5) # Чуть отступов внутри
+
+        # Лейбл
+        as_label = QLabel(self.lang["settings"]["autostart_label"])
+        as_label.setStyleSheet("border: none; font-size: 14px;")
+        autostart_layout.addWidget(as_label)
+        
+        autostart_layout.addStretch()
+
+        # Кнопка-переключатель (Точно такая же как у прокси)
+        self.autostart_button = QPushButton("•")
+        self.autostart_button.setFixedSize(18, 18)
+        self.autostart_button.setCheckable(True)
+        # Обработчик клика подключим в ClipGen.py, здесь только UI
+        
+        # Функция стиля (копия той, что у прокси, но для этой кнопки)
+        def update_autostart_style(checked):
+            if checked:
+                self.autostart_button.setStyleSheet("""
+                    QPushButton { 
+                        background-color: #3D8948; 
+                        color: white; 
+                        border-radius: 9px; 
+                        font-weight: bold; 
+                        font-size: 5px;
+                        margin: 0px;
+                        border: none;
+                    }
+                    QPushButton:hover { background-color: #2A6C34; }
+                """)
+            else:
+                self.autostart_button.setStyleSheet("""
+                    QPushButton { 
+                        background-color: #676664; 
+                        color: #FFFFFF; 
+                        border-radius: 9px; 
+                        font-weight: bold; 
+                        font-size: 5px;
+                        margin: 0px;
+                        border: none;
+                    }
+                    QPushButton:hover { background-color: #DDDDDD; color: #000000; }
+                """)
+        
+        # Сохраним ссылку на функцию обновления стиля, чтобы вызвать её из логики
+        self.update_autostart_btn_style = update_autostart_style
+        
+        # Применим стиль по умолчанию (выключено)
+        update_autostart_style(False)
+        
+        # При клике меняем стиль сразу визуально
+        self.autostart_button.toggled.connect(update_autostart_style)
+        
+        autostart_layout.addWidget(self.autostart_button)
+        self.settings_layout.addWidget(autostart_group)
+        # --------------------------------
+        
         # --- БЛОК ПРОКСИ ---
         proxy_group = QFrame()
         proxy_group.setStyleSheet("background-color: #252525; border-radius: 10px; padding: 5px;")
@@ -625,37 +690,41 @@ class ClipGenView(QMainWindow):
         self.prompts_layout.setSpacing(15)
         self.prompts_layout.setContentsMargins(15, 15, 15, 15)
 
+        # --- ИЗМЕНЕНИЕ: Заголовок и кнопка в одной строке ---
+        header_layout = QHBoxLayout()
+        
         # Заголовок
         self.hotkeys_title = QLabel(self.lang["settings"]["hotkeys_title"])
         self.hotkeys_title.setStyleSheet("font-size: 16px;")
-        self.prompts_layout.addWidget(self.hotkeys_title)
+        header_layout.addWidget(self.hotkeys_title)
+        
+        # Новая круглая кнопка добавления (как в настройках)
+        self.add_hotkey_button = QPushButton("•")
+        self.add_hotkey_button.setFixedSize(18, 18)
+        self.add_hotkey_button.setToolTip(self.lang["tooltips"]["add_hotkey"])
+        self.add_hotkey_button.setStyleSheet("""
+            QPushButton { 
+                background-color: #3D8948; 
+                color: white; 
+                border-radius: 9px; 
+                font-weight: bold; 
+                font-size: 10px; 
+            }
+            QPushButton:hover { background-color: #2A6C34; }
+        """)
+        self.add_hotkey_button.clicked.connect(self.add_new_hotkey)
+        header_layout.addWidget(self.add_hotkey_button)
+        
+        header_layout.addStretch() # Прижимаем всё влево
+        self.prompts_layout.addLayout(header_layout)
         
         # Контейнер для списка
         self.hotkeys_list_layout = QVBoxLayout()
         self.hotkeys_list_layout.setSpacing(10)
         self.prompts_layout.addLayout(self.hotkeys_list_layout)
 
-        # Заполнение списка (Метод refresh_hotkey_list должен уже существовать)
+        # Заполнение списка
         self.refresh_hotkey_list()
-        
-        # Кнопка добавления
-        hotkey_buttons_layout = QHBoxLayout()
-        self.add_hotkey_button = QPushButton(self.lang["settings"]["add_hotkey_button"])
-        self.add_hotkey_button.setToolTip(self.lang["tooltips"]["add_hotkey"])
-        self.add_hotkey_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3D8948;
-                color: white;
-                border-radius: 8px;
-                padding: 8px 15px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #2A6C34; }
-        """)
-        self.add_hotkey_button.clicked.connect(self.add_new_hotkey)
-        hotkey_buttons_layout.addWidget(self.add_hotkey_button)
-        hotkey_buttons_layout.addStretch()
-        self.prompts_layout.addLayout(hotkey_buttons_layout)
         
         self.prompts_layout.addStretch()
         
@@ -1131,23 +1200,27 @@ class ClipGenView(QMainWindow):
             self.hotkeys_list_layout.addWidget(hotkey_card)
 
     def add_new_hotkey(self):
-        """Добавляет новую горячую клавишу и обновляет интерфейс."""
+        """Добавляет новую горячую клавишу в НАЧАЛО списка и обновляет интерфейс."""
         new_hotkey = {
             "combination": "Ctrl+N",
             "name": self.lang["default_action_name"],
             "log_color": "#FFFFFF",
             "prompt": self.lang["default_prompt"]
         }
-        self.config["hotkeys"].append(new_hotkey)
+        
+        self.config["hotkeys"].insert(0, new_hotkey)
+        
         self.save_settings()
 
-        # Обновляем только нужные части интерфейса
+        # Обновляем интерфейс
         self.update_buttons()
         self.refresh_hotkey_list()
         self.update_logger_colors()
 
         # Сбрасываем состояние клавиш
         self.key_states = {"ctrl": False, "alt": False, "shift": False, "meta": False}
+        if hasattr(self, 'prompts_scroll'):
+            self.prompts_scroll.verticalScrollBar().setValue(0)
 
     def reload_settings_tab(self):
         self.model_time_labels.clear()
@@ -1486,6 +1559,12 @@ class ClipGenView(QMainWindow):
             )
         except Exception as e:
             print(f"Не удалось установить темную тему для заголовка: {e}")
+
+    def showEvent(self, event):
+        """Вызывается каждый раз, когда окно отображается на экране."""
+        super().showEvent(event)
+        # Принудительно применяем темную тему заголовка при каждом показе
+        self.set_dark_titlebar(int(self.winId()))
 
     def _create_dynamic_icon(self, color, text=None, text_color="#000000"):
         """Создает динамическую иконку с заданным цветом и текстом."""
