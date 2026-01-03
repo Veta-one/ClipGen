@@ -12,7 +12,16 @@
         "add_hotkey_button": "Добавить новое действие",
         "proxy_title": "Прокси (для обхода блокировок)",
         "proxy_enable_label": "Включить",
-        "proxy_hint": "Формат: login:password@ip:port (без http://)"
+        "proxy_hint": "Формат: login:password@ip:port (без http://)",
+        "provider_label": "AI Провайдер:",
+        "provider_gemini": "Google Gemini (Нативный)",
+        "provider_openai": "OpenAI Compatible (DeepSeek/OpenRouter)",
+        "base_url_label": "Base URL (Адрес):",
+        "openai_api_keys_label": "API Ключи:",
+        "openai_models_label": "Список моделей:",
+        "key_name_placeholder": "Имя...",
+        "model_name_placeholder": "напр. deepseek-chat",
+        "base_url_placeholder": "напр. https://openrouter.ai/api/v1"
     },
     "updates": {
         "title": "Доступно обновление ClipGen",
@@ -75,7 +84,9 @@
         "delete_hotkey": "Удалить это действие",
         "add_hotkey": "Добавить новое действие с горячей клавишей",
         "pin_window": "Закрепить/Открепить окно поверх всех",
-        "main_action_button": "Нажмите, чтобы выполнить это действие ({combination})"
+        "main_action_button": "Нажмите, чтобы выполнить это действие ({combination})",
+        "check_api_key": "Проверить работоспособность ключа",
+        "check_model_speed": "Проверить скорость ответа модели"
     },
     "errors": {
         "all_keys_exhausted": "Все доступные ключи проверены — везде лимит. Проверьте используемую модель в настройках!",

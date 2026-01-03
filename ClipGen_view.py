@@ -27,73 +27,52 @@ class CustomMessageBox(QDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
-        self.setMinimumWidth(450) # Сделали еще чуть шире
-        self.setMinimumHeight(300) # И выше, чтобы влез текст
+        self.setMinimumWidth(400)
+        # Уменьшили минимальную высоту, чтобы убрать пустоту
+        self.setMinimumHeight(150) 
 
-        parent.set_dark_titlebar(int(self.winId()))
+        if parent:
+            parent.set_dark_titlebar(int(self.winId()))
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(20)
+        main_layout.setSpacing(15)
 
-        # --- ИЗМЕНЕНИЕ: Используем QTextBrowser вместо QLabel для скролла ---
         self.message_area = QTextBrowser()
         self.message_area.setHtml(text)
         self.message_area.setOpenExternalLinks(True)
-        self.message_area.setStyleSheet("""
-            QTextBrowser {
-                background-color: transparent;
-                color: #FFFFFF;
-                border: none;
-                font-size: 13px;
-            }
-        """)
+        # Убираем фон и границы, подстраиваем высоту под текст
+        self.message_area.setStyleSheet("background-color: transparent; color: #FFFFFF; border: none; font-size: 13px;")
+        # Ограничиваем высоту текстового поля, чтобы окно не растягивалось
+        self.message_area.setMaximumHeight(100) 
         main_layout.addWidget(self.message_area)
-        # --------------------------------------------------------------------
 
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
 
         self.yes_button = QPushButton(yes_text)
-        self.yes_button.setObjectName("acceptButton")
         self.yes_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.yes_button.clicked.connect(self.accept)
+        # Красный при наведении
+        self.yes_button.setStyleSheet("""
+            QPushButton { background-color: #333333; color: #FFFFFF; border: none; border-radius: 8px; padding: 8px 0; }
+            QPushButton:hover { background-color: #C82333; } 
+        """)
         button_layout.addWidget(self.yes_button)
 
         self.no_button = QPushButton(no_text)
-        self.no_button.setObjectName("rejectButton")
         self.no_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.no_button.clicked.connect(self.reject)
+        # Зеленый при наведении
+        self.no_button.setStyleSheet("""
+            QPushButton { background-color: #333333; color: #FFFFFF; border: none; border-radius: 8px; padding: 8px 0; }
+            QPushButton:hover { background-color: #28A745; }
+        """)
         button_layout.addWidget(self.no_button)
         
         main_layout.addLayout(button_layout)
 
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #252525;
-                border: 1px solid #444444;
-            }
-            QPushButton {
-                background-color: #333333;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 8px;
-                font-size: 12px;
-                padding: 10px 0;
-                min-height: 16px;
-            }
-            /* Стили для скроллбара внутри текста */
-            QScrollBar:vertical {
-                background: #252525;
-                width: 6px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #555555;
-                min-height: 20px;
-                border-radius: 3px;
-            }
-        """)
+        self.setStyleSheet("QDialog { background-color: #252525; border: 1px solid #444444; }")
 
 class FocusExpandingTextEdit(QTextEdit):
     focusIn = pyqtSignal()
@@ -107,6 +86,7 @@ class FocusExpandingTextEdit(QTextEdit):
 class ClipGenView(QMainWindow):
     log_signal = pyqtSignal(str, str)
     flash_tray_signal = pyqtSignal() 
+    refresh_openai_lists_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -150,6 +130,8 @@ class ClipGenView(QMainWindow):
         self.resize_timer = QTimer()
         self.resize_timer.setSingleShot(True)
         self.resize_timer.timeout.connect(self.update_buttons)
+
+        self.refresh_openai_lists_signal.connect(self.refresh_openai_ui_full)
 
         # Системный трей
         self.setup_tray_icon()
@@ -432,177 +414,50 @@ class ClipGenView(QMainWindow):
         self.settings_layout.setSpacing(15)
         self.settings_layout.setContentsMargins(15, 15, 15, 15)
         
-        # --- НОВЫЙ БЛОК: Автозагрузка ---
-        autostart_group = QFrame()
-        autostart_group.setStyleSheet("background-color: #252525; border-radius: 10px; padding: 5px;")
-        autostart_layout = QHBoxLayout(autostart_group)
-        autostart_layout.setContentsMargins(10, 5, 10, 5) # Чуть отступов внутри
+        # 1. PROVIDER SELECTOR
+        provider_group = QFrame()
+        provider_group.setStyleSheet("background-color: #252525; border-radius: 10px; padding: 5px;")
+        provider_layout = QHBoxLayout(provider_group)
+        
+        # LANG: Provider Label
+        prov_label = QLabel(self.lang["settings"]["provider_label"])
+        prov_label.setStyleSheet("border: none; font-weight: bold; font-size: 14px;")
+        provider_layout.addWidget(prov_label)
+        
+        self.provider_combo = QComboBox()
+        # LANG: Provider Options
+        self.provider_combo.addItem(self.lang["settings"]["provider_gemini"])
+        self.provider_combo.addItem(self.lang["settings"]["provider_openai"])
+        
+        self.provider_combo.setMinimumWidth(250)
+        
+        # Установка текущего значения
+        if self.config.get("provider") == "openai":
+            self.provider_combo.setCurrentIndex(1)
+        else:
+            self.provider_combo.setCurrentIndex(0)
+            
+        self.provider_combo.currentIndexChanged.connect(self.update_provider_selection)
+        provider_layout.addWidget(self.provider_combo)
+        self.settings_layout.addWidget(provider_group)
 
-        # Лейбл
-        as_label = QLabel(self.lang["settings"]["autostart_label"])
-        as_label.setStyleSheet("border: none; font-size: 14px;")
-        autostart_layout.addWidget(as_label)
-        
-        autostart_layout.addStretch()
+        # 2. GEMINI CONTAINER
+        self.gemini_container = QWidget()
+        self.gemini_container_layout = QVBoxLayout(self.gemini_container)
+        self.gemini_container_layout.setContentsMargins(0,0,0,0)
+        self.gemini_container_layout.setSpacing(15)
 
-        # Кнопка-переключатель (Точно такая же как у прокси)
-        self.autostart_button = QPushButton("•")
-        self.autostart_button.setFixedSize(18, 18)
-        self.autostart_button.setCheckable(True)
-        # Обработчик клика подключим в ClipGen.py, здесь только UI
-        
-        # Функция стиля (копия той, что у прокси, но для этой кнопки)
-        def update_autostart_style(checked):
-            if checked:
-                self.autostart_button.setStyleSheet("""
-                    QPushButton { 
-                        background-color: #3D8948; 
-                        color: white; 
-                        border-radius: 9px; 
-                        font-weight: bold; 
-                        font-size: 5px;
-                        margin: 0px;
-                        border: none;
-                    }
-                    QPushButton:hover { background-color: #2A6C34; }
-                """)
-            else:
-                self.autostart_button.setStyleSheet("""
-                    QPushButton { 
-                        background-color: #676664; 
-                        color: #FFFFFF; 
-                        border-radius: 9px; 
-                        font-weight: bold; 
-                        font-size: 5px;
-                        margin: 0px;
-                        border: none;
-                    }
-                    QPushButton:hover { background-color: #DDDDDD; color: #000000; }
-                """)
-        
-        # Сохраним ссылку на функцию обновления стиля, чтобы вызвать её из логики
-        self.update_autostart_btn_style = update_autostart_style
-        
-        # Применим стиль по умолчанию (выключено)
-        update_autostart_style(False)
-        
-        # При клике меняем стиль сразу визуально
-        self.autostart_button.toggled.connect(update_autostart_style)
-        
-        autostart_layout.addWidget(self.autostart_button)
-        self.settings_layout.addWidget(autostart_group)
-        # --------------------------------
-        
-        # --- БЛОК ПРОКСИ ---
-        proxy_group = QFrame()
-        proxy_group.setStyleSheet("background-color: #252525; border-radius: 10px; padding: 5px;")
-        proxy_layout = QVBoxLayout(proxy_group)
-        proxy_layout.setSpacing(10)
-
-        # Верхняя строка: Заголовок + Чекбокс
-        top_row = QHBoxLayout()
-        # ИЗМЕНЕНО: Берём текст из JSON
-        proxy_label = QLabel(self.lang["settings"]["proxy_title"])
-        proxy_label.setStyleSheet("border: none;")
-        top_row.addWidget(proxy_label)
-        top_row.addStretch()
-
-        from PyQt5.QtWidgets import QCheckBox, QComboBox
-        
-        # Добавляем текстовую метку
-        # ИЗМЕНЕНО: Берём текст из JSON
-        enable_label = QLabel(self.lang["settings"]["proxy_enable_label"])
-        enable_label.setStyleSheet("color: #FFFFFF; border: none;")
-        top_row.addWidget(enable_label)
-
-        # Создаем круглую кнопку-переключатель
-        self.proxy_enable_check = QPushButton("•")
-        self.proxy_enable_check.setFixedSize(18, 18)
-        self.proxy_enable_check.setCheckable(True)
-        self.proxy_enable_check.setChecked(self.config.get("proxy_enabled", False))
-        
-        # Функция для обновления цвета кнопки
-        def update_proxy_btn_style(checked):
-            if checked:
-                # ВАЖНО: padding: 0px убирает глобальный отступ и точка становится маленькой и по центру
-                self.proxy_enable_check.setStyleSheet("""
-                    QPushButton { 
-                        background-color: #3D8948; 
-                        color: white; 
-                        border-radius: 9px; 
-                        font-weight: bold; 
-                        font-size: 5px;
-                        margin: 0px;
-                        border: none;
-                    }
-                    QPushButton:hover { background-color: #2A6C34; }
-                """)
-            else:
-                self.proxy_enable_check.setStyleSheet("""
-                    QPushButton { 
-                        background-color: #676664; 
-                        color: #FFFFFF; 
-                        border-radius: 9px; 
-                        font-weight: bold; 
-                        font-size: 5px;
-                        margin: 0px;
-                        border: none;
-                    }
-                    QPushButton:hover { background-color: #DDDDDD; color: #000000; }
-                """)
-        
-        update_proxy_btn_style(self.proxy_enable_check.isChecked())
-        self.proxy_enable_check.toggled.connect(update_proxy_btn_style)
-        
-        self.proxy_enable_check.toggled.connect(self.toggle_proxy_enable)
-        top_row.addWidget(self.proxy_enable_check)
-        proxy_layout.addLayout(top_row)
-
-        # Нижняя строка: Тип + Поле ввода
-        input_row = QHBoxLayout()
-        input_row.setSpacing(10)
-
-        self.proxy_type_combo = QComboBox()
-        self.proxy_type_combo.addItems(["HTTP", "SOCKS5"])
-        current_type = self.config.get("proxy_type", "HTTP")
-        index = self.proxy_type_combo.findText(current_type)
-        if index >= 0: self.proxy_type_combo.setCurrentIndex(index)
-        self.proxy_type_combo.setFixedWidth(80)
-        self.proxy_type_combo.setStyleSheet("""
-            QComboBox { background-color: #333; color: white; border: 1px solid #444; border-radius: 5px; padding: 5px; }
-            QComboBox::drop-down { border: none; }
-        """)
-        self.proxy_type_combo.currentTextChanged.connect(self.update_proxy_type)
-        input_row.addWidget(self.proxy_type_combo)
-
-        self.proxy_input = QLineEdit(self.config.get("proxy_string", ""))
-        self.proxy_input.setPlaceholderText("user:pass@ip:port")
-        self.proxy_input.setStyleSheet("""
-            QLineEdit { background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 5px; padding: 5px; }
-        """)
-        self.proxy_input.textChanged.connect(self.update_proxy_string)
-        input_row.addWidget(self.proxy_input)
-        proxy_layout.addLayout(input_row)
-        
-        hint = QLabel(self.lang["settings"]["proxy_hint"])
-        hint.setStyleSheet("color: #666; font-size: 10px; border: none; margin-left: 2px;")
-        proxy_layout.addWidget(hint)
-
-        self.update_proxy_ui_state(self.config.get("proxy_enabled", False))
-        self.settings_layout.addWidget(proxy_group)
-        # --- КОНЕЦ БЛОКА ПРОКСИ ---
-        
-        # --- API Keys ---
+        # Gemini Keys Header
         api_key_container = QFrame()
         api_key_container.setStyleSheet("QFrame { background-color: transparent; border-radius: 10px; padding: 0px; }")
         api_key_main_layout = QVBoxLayout(api_key_container)
         api_key_main_layout.setContentsMargins(0, 10, 0, 10)
         api_key_main_layout.setSpacing(10)
 
-        header_row = QHBoxLayout()
-        self.api_key_label = QLabel(self.lang["settings"]["api_key_label"])
-        self.api_key_label.setStyleSheet("font-size: 16px;")
-        header_row.addWidget(self.api_key_label)
+        g_header = QHBoxLayout()
+        g_label = QLabel(self.lang["settings"]["api_key_label"])
+        g_label.setStyleSheet("font-size: 16px;")
+        g_header.addWidget(g_label)
 
         self.toggle_keys_button = QPushButton("•")
         self.toggle_keys_button.setFixedSize(18, 18)
@@ -612,31 +467,220 @@ class ClipGenView(QMainWindow):
             QPushButton:hover { background-color: #DDDDDD; }
         """)
         self.toggle_keys_button.clicked.connect(self.toggle_api_key_visibility)
-        header_row.addWidget(self.toggle_keys_button)
+        g_header.addWidget(self.toggle_keys_button)
         
         self.auto_switch_button = QPushButton("•")
         self.auto_switch_button.setFixedSize(18, 18)
         self.auto_switch_button.setToolTip(self.lang["tooltips"]["auto_switch_keys"])
         self.auto_switch_button.clicked.connect(self.toggle_auto_switch)
-        header_row.addWidget(self.auto_switch_button)
+        g_header.addWidget(self.auto_switch_button)
 
         self.add_key_button = QPushButton("•")
         self.add_key_button.setFixedSize(18, 18)
         self.add_key_button.setToolTip(self.lang["tooltips"]["add_api_key"])
-        self.add_key_button.setStyleSheet("""
-            QPushButton { background-color: #3D8948; color: white; border-radius: 9px; font-weight: bold; font-size: 10px; }
-            QPushButton:hover { background-color: #2A6C34; }
-        """)
+        self.add_key_button.setStyleSheet("QPushButton { background-color: #3D8948; color: white; border-radius: 9px; font-weight: bold; font-size: 10px; } QPushButton:hover { background-color: #2A6C34; }")
         self.add_key_button.clicked.connect(self.add_api_key_entry)
-        header_row.addWidget(self.add_key_button)
-        header_row.addStretch()
+        g_header.addWidget(self.add_key_button)
+        g_header.addStretch()
+
+        api_key_main_layout.addLayout(g_header)
+        
+        self.api_keys_layout = QVBoxLayout()
+        self.api_keys_layout.setSpacing(5)
+        self.key_radio_group = QButtonGroup(self)
+        self.key_radio_group.buttonClicked[int].connect(self.set_active_api_key_index)
+        api_key_main_layout.addLayout(self.api_keys_layout)
+        self.gemini_container_layout.addWidget(api_key_container)
+
+        # Gemini Models Block
+        model_container = QFrame()
+        model_container.setStyleSheet("background-color: transparent;")
+        model_layout = QVBoxLayout(model_container)
+        model_layout.setContentsMargins(0, 10, 0, 10)
+        model_layout.setSpacing(10)
+
+        gm_header = QHBoxLayout()
+        gm_label = QLabel(self.lang["settings"]["gemini_models_label"])
+        gm_label.setStyleSheet("font-size: 16px;")
+        gm_header.addWidget(gm_label)
+        
+        self.add_model_button = QPushButton("•")
+        self.add_model_button.setFixedSize(18, 18)
+        self.add_model_button.setToolTip(self.lang["tooltips"]["add_model"])
+        self.add_model_button.setStyleSheet("QPushButton { background-color: #3D8948; color: white; border-radius: 9px; font-weight: bold; font-size: 10px; } QPushButton:hover { background-color: #2A6C34; }")
+        self.add_model_button.clicked.connect(self.add_new_model)
+        gm_header.addWidget(self.add_model_button)
+        gm_header.addStretch()
+        model_layout.addLayout(gm_header)
+
+        self.models_list_layout = QVBoxLayout()
+        self.models_list_layout.setSpacing(5)
+        self.model_radio_group = QButtonGroup(self)
+        self.model_radio_group.buttonClicked[int].connect(self.set_active_model)
+        model_layout.addLayout(self.models_list_layout)
+        self.gemini_container_layout.addWidget(model_container)
+        
+        self.settings_layout.addWidget(self.gemini_container)
+
+
+        # 3. OPENAI CONTAINER
+        self.openai_container = QWidget()
+        self.openai_layout = QVBoxLayout(self.openai_container)
+        self.openai_layout.setContentsMargins(0,0,0,0)
+        self.openai_layout.setSpacing(15)
+
+        # Base URL
+        url_frame = QFrame()
+        url_frame.setStyleSheet("background-color: #252525; border-radius: 10px; padding: 5px;")
+        url_layout = QHBoxLayout(url_frame)
+        # LANG: Base URL Label
+        url_layout.addWidget(QLabel(self.lang["settings"]["base_url_label"]))
+        self.openai_base_url_input = QLineEdit(self.config.get("openai_base_url", ""))
+        # LANG: Base URL Placeholder
+        self.openai_base_url_input.setPlaceholderText(self.lang["settings"]["base_url_placeholder"])
+        self.openai_base_url_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; padding: 5px;")
+        self.openai_base_url_input.textChanged.connect(self.update_openai_base_url)
+        url_layout.addWidget(self.openai_base_url_input)
+        self.openai_layout.addWidget(url_frame)
+
+        # OpenAI Keys Header
+        oa_key_header_layout = QHBoxLayout()
+        oa_key_header_layout.setContentsMargins(0, 10, 0, 0)
+        # LANG: API Keys Label
+        oa_label = QLabel(self.lang["settings"]["openai_api_keys_label"])
+        oa_label.setStyleSheet("font-size: 16px;")
+        oa_key_header_layout.addWidget(oa_label)
+
+        # OpenAI Buttons
+        oa_eye_btn = QPushButton("•")
+        oa_eye_btn.setFixedSize(18, 18)
+        # LANG: Tooltip
+        oa_eye_btn.setToolTip(self.lang["tooltips"]["toggle_keys_visibility"])
+        oa_eye_btn.setStyleSheet("""
+            QPushButton { background-color: #676664; color: #FFFFFF; border-radius: 9px; font-weight: bold; font-size: 10px; }
+            QPushButton:hover { background-color: #DDDDDD; }
+        """)
+        oa_eye_btn.clicked.connect(self.toggle_api_key_visibility)
+        oa_key_header_layout.addWidget(oa_eye_btn)
+
+        self.oa_auto_switch = QPushButton("•")
+        self.oa_auto_switch.setFixedSize(18, 18)
+        # LANG: Tooltip
+        self.oa_auto_switch.setToolTip(self.lang["tooltips"]["auto_switch_keys"])
+        self.oa_auto_switch.clicked.connect(self.toggle_auto_switch)
+        oa_key_header_layout.addWidget(self.oa_auto_switch)
+
+        oa_add_key = QPushButton("•")
+        oa_add_key.setFixedSize(18, 18)
+        # LANG: Tooltip
+        oa_add_key.setToolTip(self.lang["tooltips"]["add_api_key"])
+        oa_add_key.setStyleSheet("QPushButton { background-color: #3D8948; color: white; border-radius: 9px; font-weight: bold; font-size: 10px; } QPushButton:hover { background-color: #2A6C34; }")
+        oa_add_key.clicked.connect(self.add_openai_key)
+        oa_key_header_layout.addWidget(oa_add_key)
+        oa_key_header_layout.addStretch()
+        self.openai_layout.addLayout(oa_key_header_layout)
+
+        self.openai_keys_list_layout = QVBoxLayout()
+        self.openai_layout.addLayout(self.openai_keys_list_layout)
+
+        # OpenAI Models Header
+        oa_model_header = QHBoxLayout()
+        oa_model_header.setContentsMargins(0, 10, 0, 0)
+        # LANG: Models List Label
+        oam_label = QLabel(self.lang["settings"]["openai_models_label"])
+        oam_label.setStyleSheet("font-size: 16px;")
+        oa_model_header.addWidget(oam_label)
+
+        oa_add_model = QPushButton("•")
+        oa_add_model.setFixedSize(18, 18)
+        # LANG: Tooltip
+        oa_add_model.setToolTip(self.lang["tooltips"]["add_model"])
+        oa_add_model.setStyleSheet("QPushButton { background-color: #3D8948; color: white; border-radius: 9px; font-weight: bold; font-size: 10px; } QPushButton:hover { background-color: #2A6C34; }")
+        oa_add_model.clicked.connect(self.add_openai_model)
+        oa_model_header.addWidget(oa_add_model)
+        oa_model_header.addStretch()
+        self.openai_layout.addLayout(oa_model_header)
+
+        self.openai_models_list_layout = QVBoxLayout()
+        self.openai_layout.addLayout(self.openai_models_list_layout)
+        self.settings_layout.addWidget(self.openai_container)
+        
+        # Autostart
+        autostart_group = QFrame()
+        autostart_group.setStyleSheet("background-color: #252525; border-radius: 10px; padding: 5px;")
+        autostart_layout = QHBoxLayout(autostart_group)
+        autostart_layout.setContentsMargins(10, 5, 10, 5) 
+        as_label = QLabel(self.lang["settings"]["autostart_label"])
+        as_label.setStyleSheet("border: none; font-size: 14px;")
+        autostart_layout.addWidget(as_label)
+        autostart_layout.addStretch()
+        self.autostart_button = QPushButton("•")
+        self.autostart_button.setFixedSize(18, 18)
+        self.autostart_button.setCheckable(True)
+        def update_autostart_style(checked):
+            if checked:
+                self.autostart_button.setStyleSheet("QPushButton { background-color: #3D8948; color: white; border-radius: 9px; font-weight: bold; font-size: 5px; margin: 0px; border: none; } QPushButton:hover { background-color: #2A6C34; }")
+            else:
+                self.autostart_button.setStyleSheet("QPushButton { background-color: #676664; color: #FFFFFF; border-radius: 9px; font-weight: bold; font-size: 5px; margin: 0px; border: none; } QPushButton:hover { background-color: #DDDDDD; color: #000000; }")
+        self.update_autostart_btn_style = update_autostart_style
+        update_autostart_style(False)
+        self.autostart_button.toggled.connect(update_autostart_style)
+        autostart_layout.addWidget(self.autostart_button)
+        self.settings_layout.addWidget(autostart_group)
+        
+        # Proxy (тут уже все на self.lang)
+        proxy_group = QFrame()
+        proxy_group.setStyleSheet("background-color: #252525; border-radius: 10px; padding: 5px;")
+        proxy_layout = QVBoxLayout(proxy_group)
+        top_row = QHBoxLayout()
+        proxy_label = QLabel(self.lang["settings"]["proxy_title"])
+        proxy_label.setStyleSheet("border: none;")
+        top_row.addWidget(proxy_label)
+        top_row.addStretch()
+        enable_label = QLabel(self.lang["settings"]["proxy_enable_label"])
+        enable_label.setStyleSheet("color: #FFFFFF; border: none;")
+        top_row.addWidget(enable_label)
+        self.proxy_enable_check = QPushButton("•")
+        self.proxy_enable_check.setFixedSize(18, 18)
+        self.proxy_enable_check.setCheckable(True)
+        self.proxy_enable_check.setChecked(self.config.get("proxy_enabled", False))
+        def update_proxy_btn_style(checked):
+            if checked:
+                self.proxy_enable_check.setStyleSheet("QPushButton { background-color: #3D8948; color: white; border-radius: 9px; font-weight: bold; font-size: 5px; margin: 0px; border: none; } QPushButton:hover { background-color: #2A6C34; }")
+            else:
+                self.proxy_enable_check.setStyleSheet("QPushButton { background-color: #676664; color: #FFFFFF; border-radius: 9px; font-weight: bold; font-size: 5px; margin: 0px; border: none; } QPushButton:hover { background-color: #DDDDDD; color: #000000; }")
+        update_proxy_btn_style(self.proxy_enable_check.isChecked())
+        self.proxy_enable_check.toggled.connect(update_proxy_btn_style)
+        self.proxy_enable_check.toggled.connect(self.toggle_proxy_enable)
+        top_row.addWidget(self.proxy_enable_check)
+        proxy_layout.addLayout(top_row)
+        input_row = QHBoxLayout()
+        self.proxy_type_combo = QComboBox()
+        self.proxy_type_combo.addItems(["HTTP", "SOCKS5"])
+        current_type = self.config.get("proxy_type", "HTTP")
+        idx = self.proxy_type_combo.findText(current_type)
+        if idx >= 0: self.proxy_type_combo.setCurrentIndex(idx)
+        self.proxy_type_combo.setFixedWidth(80)
+        self.proxy_type_combo.currentTextChanged.connect(self.update_proxy_type)
+        input_row.addWidget(self.proxy_type_combo)
+        self.proxy_input = QLineEdit(self.config.get("proxy_string", ""))
+        self.proxy_input.setPlaceholderText("user:pass@ip:port")
+        self.proxy_input.textChanged.connect(self.update_proxy_string)
+        input_row.addWidget(self.proxy_input)
+        proxy_layout.addLayout(input_row)
+        hint = QLabel(self.lang["settings"]["proxy_hint"])
+        hint.setStyleSheet("color: #666; font-size: 10px; border: none; margin-left: 2px;")
+        proxy_layout.addWidget(hint)
+        self.update_proxy_ui_state(self.config.get("proxy_enabled", False))
+        self.settings_layout.addWidget(proxy_group)
 
         # Language
-        language_layout = QHBoxLayout()
+        lang_group = QFrame()
+        lang_group.setStyleSheet("background-color: transparent;")
+        lang_layout = QHBoxLayout(lang_group)
         self.language_label = QLabel(self.lang["settings"]["language_label"])
-        language_layout.addWidget(self.language_label)
+        lang_layout.addWidget(self.language_label)
         self.language_combo = QComboBox()
-        self.language_combo.setToolTip(self.lang["tooltips"]["language_selection"])
         self.language_combo.setMinimumWidth(100)
         self.language_combo.setStyleSheet("border-radius: 8px; border: 1px solid #444444; padding: 5px; background-color: #2a2a2a; color: white;")
         for lang in self.get_available_languages():
@@ -644,23 +688,9 @@ class ClipGenView(QMainWindow):
         current_index = self.language_combo.findText(self.config.get("language", "en"))
         if current_index >= 0: self.language_combo.setCurrentIndex(current_index)
         self.language_combo.currentTextChanged.connect(self.update_language)
-        language_layout.addWidget(self.language_combo)
-        header_row.addLayout(language_layout)
-        
-        api_key_main_layout.addLayout(header_row)
+        lang_layout.addWidget(self.language_combo)
+        self.settings_layout.addWidget(lang_group)
 
-        self.api_keys_layout = QVBoxLayout()
-        self.api_keys_layout.setSpacing(5)
-        self.key_radio_group = QButtonGroup(self)
-        self.key_radio_group.buttonClicked[int].connect(self.set_active_api_key_index)
-        self.refresh_api_key_list()
-        
-        api_key_main_layout.addLayout(self.api_keys_layout)
-        self.settings_layout.addWidget(api_key_container)
-
-        # --- Models ---
-        self.setup_model_selection_ui()
-        
         self.settings_layout.addStretch()
         self.settings_scroll = QScrollArea()
         self.settings_scroll.setWidget(self.settings_tab)
@@ -673,14 +703,22 @@ class ClipGenView(QMainWindow):
         """)
 
         self.content_stack.addWidget(self.settings_scroll)
-        # Инициализация кнопки автосмены
+        
+        self.refresh_api_key_list()
+        self.refresh_model_list()
+        self.refresh_openai_ui_full()
+        self.toggle_provider_ui(self.config.get("provider"))
+        
+        # Обновляем стили кнопок авто-смены
         if hasattr(self, 'config'):
              is_active = self.config.get("auto_switch_api_keys", False)
              color = "#5085D0" if is_active else "#676664"
-             self.auto_switch_button.setStyleSheet(f"""
+             style = f"""
                 QPushButton {{ background-color: {color}; color: #FFFFFF; border-radius: 9px; font-weight: bold; font-size: 10px; }}
                 QPushButton:hover {{ background-color: #DDDDDD; color: #000000; }}
-            """)
+            """
+             self.auto_switch_button.setStyleSheet(style)
+             self.oa_auto_switch.setStyleSheet(style)
         
     def setup_prompts_tab(self):
         """Создает вкладку с настройкой промптов и горячих клавиш"""
@@ -766,20 +804,20 @@ class ClipGenView(QMainWindow):
         self.save_settings()
 
     def toggle_api_key_visibility(self):
-        """Переключает видимость API ключей и сохраняет состояние."""
-        # 1. Получаем текущее состояние и инвертируем его
+        """Переключает видимость API ключей (Gemini и OpenAI)"""
         current_state = self.config.get("api_keys_visible", False)
         new_state_is_visible = not current_state
-
-        # 2. Сохраняем новое состояние в конфиг
         self.update_api_key_visibility(new_state_is_visible)
 
-        # 3. Применяем новое состояние ко всем полям ввода
-        for key_input in self.api_key_inputs:
-            if new_state_is_visible:
-                key_input.setEchoMode(QLineEdit.Normal)
-            else:
-                key_input.setEchoMode(QLineEdit.Password)
+        # Обновляем Gemini inputs
+        if hasattr(self, 'api_key_inputs'):
+            for key_input in self.api_key_inputs:
+                key_input.setEchoMode(QLineEdit.Normal if new_state_is_visible else QLineEdit.Password)
+        
+        # Обновляем OpenAI inputs (которые мы добавили в список в refresh_openai_ui_full)
+        if hasattr(self, 'openai_key_inputs'):
+            for key_input in self.openai_key_inputs:
+                key_input.setEchoMode(QLineEdit.Normal if new_state_is_visible else QLineEdit.Password)
 
     def setup_model_selection_ui(self):
         """Создает UI блок для выбора, добавления и удаления моделей Gemini."""
@@ -1038,6 +1076,182 @@ class ClipGenView(QMainWindow):
             row_layout.addWidget(del_btn)
 
             self.api_keys_layout.addWidget(row_widget)
+
+    def refresh_openai_ui_full(self):
+        """Полностью перерисовывает списки ключей и моделей для OpenAI"""
+        
+        # Список для полей ввода (чтобы работала кнопка 'Глаз')
+        self.openai_key_inputs = []
+        self.openai_time_labels = {}
+        
+        while self.openai_keys_list_layout.count():
+            child = self.openai_keys_list_layout.takeAt(0)
+            if child.widget(): child.widget().deleteLater()
+        
+        self.openai_key_group = QButtonGroup(self)
+        self.openai_key_group.buttonClicked[int].connect(self.set_active_openai_key)
+
+        keys = self.config.get("openai_api_keys", [])
+        is_visible = self.config.get("api_keys_visible", False)
+
+        for i, key_data in enumerate(keys):
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(10)
+
+            # Radio
+            radio = QRadioButton()
+            radio.setChecked(key_data.get("active", False))
+            radio.setFixedSize(18, 18)
+            radio.setStyleSheet("""
+                QRadioButton::indicator { width: 18px; height: 18px; border-radius: 9px; }
+                QRadioButton::indicator:unchecked { background-color: #353535; }
+                QRadioButton::indicator:unchecked:hover { background-color: #4f4f4f; }
+                QRadioButton::indicator:checked { background-color: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5, stop:0 #FFFFFF, stop:0.1 #FFFFFF, stop:0.21 #5085D0, stop:1 #5085D0); }
+            """)
+            self.openai_key_group.addButton(radio, i)
+            row_layout.addWidget(radio)
+
+            # Key Input
+            key_input = QLineEdit(key_data.get("key", ""))
+            if not is_visible:
+                key_input.setEchoMode(QLineEdit.Password)
+            key_input.setStyleSheet("border-radius: 8px; border: 1px solid #444444; padding: 5px; background-color: #2a2a2a; color: #FFFFFF;")
+            key_input.textChanged.connect(lambda text, idx=i: self.update_openai_key_val(idx, text))
+            row_layout.addWidget(key_input, 1)
+            self.openai_key_inputs.append(key_input)
+
+            # Name Input
+            name_input = QLineEdit(key_data.get("name", ""))
+            # LANG: Placeholder
+            name_input.setPlaceholderText(self.lang["settings"]["key_name_placeholder"])
+            name_input.setFixedWidth(80)
+            name_input.setStyleSheet("border-radius: 8px; border: 1px solid #444444; padding: 5px; background-color: #2a2a2a; color: #FFFFFF;")
+            name_input.textChanged.connect(lambda text, idx=i: self.update_openai_key_name(idx, text))
+            row_layout.addWidget(name_input)
+
+            # Usage
+            timestamps = key_data.get("usage_timestamps", [])
+            now = time.time()
+            recent_usage = len([ts for ts in timestamps if now - ts < 86400])
+            count_label = QLabel(str(recent_usage))
+            count_label.setStyleSheet("color: #888888; font-size: 12px;")
+            count_label.setFixedWidth(40)
+            count_label.setAlignment(Qt.AlignCenter)
+            row_layout.addWidget(count_label)
+
+            # Test Button
+            test_btn = QPushButton("•")
+            test_btn.setFixedSize(18, 18)
+            # LANG: Tooltip
+            test_btn.setToolTip(self.lang["tooltips"]["check_api_key"])
+            test_btn.clicked.connect(lambda _, idx=i: self.start_openai_key_test(idx))
+            
+            # (Раскраска кнопки - оставляем твой код)
+            status = self.openai_key_test_statuses.get(i, 'not_tested')
+            if status == 'success':
+                test_btn.setStyleSheet("QPushButton { background-color: #28A745; color: white; border-radius: 9px; } QPushButton:hover { background-color: #218838; }")
+            elif status == 'error':
+                test_btn.setStyleSheet("QPushButton { background-color: #DC3545; color: white; border-radius: 9px; } QPushButton:hover { background-color: #C82333; }")
+            elif status == 'testing':
+                test_btn.setStyleSheet("QPushButton { background-color: #FFC107; color: white; border-radius: 9px; } QPushButton:hover { background-color: #E0A800; }")
+            else:
+                test_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; border-radius: 9px; } QPushButton:hover { background-color: #5a6268; }")
+            
+            row_layout.addWidget(test_btn)
+
+            # Delete Button
+            del_btn = QPushButton("•")
+            del_btn.setFixedSize(18, 18)
+            # LANG: Tooltip (reuse existing)
+            del_btn.setToolTip(self.lang["tooltips"]["delete_api_key"])
+            del_btn.setStyleSheet("QPushButton { background-color: #FF5F57; color: white; border-radius: 9px; font-weight: bold; font-size: 10px; } QPushButton:hover { background-color: #FF3B30; }")
+            del_btn.clicked.connect(lambda _, idx=i: self.delete_openai_key(idx))
+            row_layout.addWidget(del_btn)
+
+            self.openai_keys_list_layout.addWidget(row_widget)
+
+
+        # --- 2. MODELS ---
+        while self.openai_models_list_layout.count():
+            child = self.openai_models_list_layout.takeAt(0)
+            if child.widget(): child.widget().deleteLater()
+        
+        self.openai_model_group = QButtonGroup(self)
+        self.openai_model_group.buttonClicked[int].connect(self.set_active_openai_model)
+
+        models = self.config.get("openai_models", [])
+        active_model = self.config.get("openai_active_model", "")
+
+        for i, model_data in enumerate(models):
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(10)
+
+            radio = QRadioButton()
+            radio.setChecked(model_data.get("name") == active_model)
+            radio.setFixedSize(18, 18)
+            radio.setStyleSheet("""
+                QRadioButton::indicator { width: 18px; height: 18px; border-radius: 9px; }
+                QRadioButton::indicator:unchecked { background-color: #353535; }
+                QRadioButton::indicator:unchecked:hover { background-color: #4f4f4f; }
+                QRadioButton::indicator:checked { background-color: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5, stop:0 #FFFFFF, stop:0.1 #FFFFFF, stop:0.21 #5085D0, stop:1 #5085D0); }
+            """)
+            self.openai_model_group.addButton(radio, i)
+            row_layout.addWidget(radio)
+
+            name_input = QLineEdit(model_data.get("name", ""))
+            # LANG: Placeholder
+            name_input.setPlaceholderText(self.lang["settings"]["model_name_placeholder"])
+            name_input.setStyleSheet("border-radius: 8px; border: 1px solid #444444; padding: 5px; background-color: #2a2a2a; color: #FFFFFF;")
+            name_input.textChanged.connect(lambda text, idx=i: self.update_openai_model_name(idx, text))
+            row_layout.addWidget(name_input, 1)
+
+            # Timer label (оставляем как было)
+            duration = model_data.get("test_duration", 0.0)
+            dur_text = f"{duration:.1f}s" if duration > 0 else "0.0s"
+            if i in self.openai_model_test_statuses and self.openai_model_test_statuses[i] == 'testing':
+                dur_text = "..."
+            
+            time_label = QLabel(dur_text) 
+            time_label.setStyleSheet("color: #888888; font-size: 12px;")
+            time_label.setFixedWidth(50)
+            time_label.setAlignment(Qt.AlignCenter)
+            self.openai_time_labels[i] = time_label
+            row_layout.addWidget(time_label)
+
+            # Test Button
+            test_btn = QPushButton("•")
+            test_btn.setFixedSize(18, 18)
+            # LANG: Tooltip
+            test_btn.setToolTip(self.lang["tooltips"]["check_model_speed"])
+            test_btn.clicked.connect(lambda _, idx=i: self.start_openai_model_test(idx))
+            
+            # (Раскраска кнопки - оставляем как было)
+            m_status = self.config["openai_models"][i].get("test_status", "not_tested")
+            if i in self.openai_model_test_statuses and self.openai_model_test_statuses[i] == 'testing':
+                 test_btn.setStyleSheet("QPushButton { background-color: #FFC107; color: white; border-radius: 9px; }")
+            elif m_status == 'success':
+                 test_btn.setStyleSheet("QPushButton { background-color: #28A745; color: white; border-radius: 9px; }")
+            elif m_status == 'error':
+                 test_btn.setStyleSheet("QPushButton { background-color: #DC3545; color: white; border-radius: 9px; }")
+            else:
+                 test_btn.setStyleSheet("QPushButton { background-color: #6c757d; color: white; border-radius: 9px; }")
+
+            row_layout.addWidget(test_btn)
+
+            # Delete Button
+            del_btn = QPushButton("•")
+            del_btn.setFixedSize(18, 18)
+            # LANG: Tooltip
+            del_btn.setToolTip(self.lang["tooltips"]["delete_model"])
+            del_btn.setStyleSheet("QPushButton { background-color: #FF5F57; color: white; border-radius: 9px; font-weight: bold; font-size: 10px; } QPushButton:hover { background-color: #FF3B30; }")
+            del_btn.clicked.connect(lambda _, idx=i: self.delete_openai_model(idx))
+            row_layout.addWidget(del_btn)
+
+            self.openai_models_list_layout.addWidget(row_widget)
 
     # Placeholder methods to be implemented in ClipGen.py
     def add_api_key_entry(self): pass
@@ -1771,6 +1985,21 @@ class ClipGenView(QMainWindow):
             button.setText("Copy"),
             button.setStyleSheet(original_style)
         ))
+
+    def toggle_provider_ui(self, provider_name):
+        """Скрывает или показывает настройки в зависимости от провайдера"""
+        if provider_name == "openai":
+            self.gemini_container.setVisible(False)
+            self.openai_container.setVisible(True)
+        else:
+            self.gemini_container.setVisible(True)
+            self.openai_container.setVisible(False)
+            
+    # Placeholder methods for ClipGen.py to implement
+    def update_provider_selection(self, index): pass
+    def update_openai_base_url(self, text): pass
+    def update_openai_api_key(self, text): pass
+    def update_openai_model(self, text): pass
 
     # Placeholder method
     def start_api_key_test(self, index): pass

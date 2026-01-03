@@ -5,3 +5,4 @@ google-generativeai==0.8.5
 pynput==1.7.6
 pywin32==306
 PySocks==1.7.1
+openai
