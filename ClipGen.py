@@ -84,6 +84,7 @@ DEFAULT_CONFIG = {
     "proxy_enabled": False,
     "proxy_type": "HTTP",
     "proxy_string": "",
+    "ui_scale": 1.0,
     "skipped_version": "",
     "hotkeys": [
         {"combination": "Ctrl+F1", "name": "F1 Text Correction", "log_color": "#FFFFFF", "prompt": "Fix grammar and spelling..."},
@@ -218,6 +219,11 @@ class ClipGen(ClipGenView):
         self.update_not_found_signal.connect(self.on_update_not_found)
         
         self.check_updates_button.clicked.connect(self.check_for_updates_manual)
+        
+        # Подключаем зум
+        self.scale_up_btn.clicked.connect(lambda: self.change_ui_scale(0.1))
+        self.scale_down_btn.clicked.connect(lambda: self.change_ui_scale(-0.1))
+
         # Восстанавливаем состояние кнопки автозагрузки и подключаем её заново
         # (так как вкладка настроек была пересоздана)
         self.autostart_button.clicked.connect(self.toggle_autostart)
@@ -273,6 +279,24 @@ class ClipGen(ClipGenView):
         except Exception as e:
             logger.error(f"Failed to change autostart: {e}")
             # Если ошибка, возвращаем кнопку в прежнее состояние визуально (опционально)
+
+    def change_ui_scale(self, delta):
+        """Меняет масштаб и просит перезагрузку."""
+        current = self.config.get("ui_scale", 1.0)
+        new_scale = round(current + delta, 1)
+        
+        # Ограничим от 0.8 (80%) до 3.0 (300%)
+        if new_scale < 0.8: new_scale = 0.8
+        if new_scale > 3.0: new_scale = 3.0
+        
+        if new_scale != current:
+            self.config["ui_scale"] = new_scale
+            self.save_settings()
+            self.scale_val_label.setText(f"{int(new_scale*100)}%")
+            
+            # Сообщение о перезагрузке
+            QMessageBox.information(self, "Restart Required", 
+                                    f"Scale changed to {int(new_scale*100)}%.\nPlease restart the app to apply changes.")
 
     def sync_autostart_ui(self):
         """Синхронизирует кнопку с реальным состоянием в реестре."""
@@ -2395,14 +2419,26 @@ def exception_hook(exctype, value, traceback):
 
 if __name__ == "__main__":
     print("DEBUG: Скрипт запущен.")
-    # Устанавливаем перехватчик исключений
     sys.excepthook = exception_hook
     
     try:
-        # Включаем поддержку High DPI (масштабирования Windows)
-        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+        # --- ЛОГИКА МАСШТАБИРОВАНИЯ ---
+        # Читаем конфиг вручную до запуска QApplication
+        scale_factor = "1.0"
+        try:
+            if os.path.exists("settings.json"):
+                with open("settings.json", "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    scale_factor = str(cfg.get("ui_scale", 1.0))
+        except:
+            pass
+        
+        # Применяем масштаб глобально
+        os.environ["QT_SCALE_FACTOR"] = scale_factor
+        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "0" # Отключаем авто, так как рулим сами
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+        # -----------------------------
 
         print("DEBUG: Создание объекта QApplication.")
         app = QApplication(sys.argv)

@@ -689,6 +689,30 @@ class ClipGenView(QMainWindow):
         if current_index >= 0: self.language_combo.setCurrentIndex(current_index)
         self.language_combo.currentTextChanged.connect(self.update_language)
         lang_layout.addWidget(self.language_combo)
+        
+        # --- МАСШТАБИРОВАНИЕ ---
+        lang_layout.addSpacing(20)
+        scale_label = QLabel("Zoom:")
+        lang_layout.addWidget(scale_label)
+
+        self.scale_down_btn = QPushButton("-")
+        self.scale_down_btn.setFixedSize(24, 24)
+        self.scale_down_btn.setStyleSheet("background-color: #444; border-radius: 4px;")
+        lang_layout.addWidget(self.scale_down_btn)
+
+        # Показываем текущий %
+        current_scale = int(self.config.get("ui_scale", 1.0) * 100)
+        self.scale_val_label = QLabel(f"{current_scale}%")
+        self.scale_val_label.setFixedWidth(40)
+        self.scale_val_label.setAlignment(Qt.AlignCenter)
+        lang_layout.addWidget(self.scale_val_label)
+
+        self.scale_up_btn = QPushButton("+")
+        self.scale_up_btn.setFixedSize(24, 24)
+        self.scale_up_btn.setStyleSheet("background-color: #444; border-radius: 4px;")
+        lang_layout.addWidget(self.scale_up_btn)
+        # -----------------------
+
         self.settings_layout.addWidget(lang_group)
 
         self.settings_layout.addStretch()
