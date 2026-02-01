@@ -8,7 +8,7 @@ dist/
 startup_error.txt
 error_log.txt
 
-# Добавили батник сюда
+# Build script (local only)
 build_clipgen.bat
 
 *.exe
@@ -17,3 +17,15 @@ settings.json
 
 .vscode/
 .idea/
+
+# Backup folders
+newbackup*/
+
+# Dev/internal files
+TODO.md
+clipgen/todo.txt
+clipgen/Old_post.txt
+clipgen/POST_*.md
+
+# Claude Code
+.claude/

@@ -29,9 +29,9 @@ jobs:
         pip install pyinstaller
 
     - name: Build EXE with PyInstaller
-      # Тут твоя команда сборки. Обрати внимание на разделитель ; для Windows
+      # v2.3.0: Сборка из модульной структуры clipgen/
       run: |
-        pyinstaller --noconsole --onefile --clean --name "ClipGen" --icon="ClipGen.ico" --add-data "lang;lang" --add-data "ClipGen.ico;." ClipGen.py
+        pyinstaller --noconsole --onefile --clean --name "ClipGen" --icon="ClipGen.ico" --add-data "lang;lang" --add-data "ClipGen.ico;." --hidden-import "clipgen" --hidden-import "clipgen.app" --hidden-import "clipgen.core" --hidden-import "clipgen.api" --hidden-import "clipgen.hotkeys" --hidden-import "clipgen.ui" --hidden-import "clipgen.utils" --hidden-import "clipgen.testing" clipgen/main.py
 
     - name: Create Release and Upload Asset
       uses: softprops/action-gh-release@v1

@@ -21,7 +21,14 @@
         "openai_models_label": "Models List:",
         "key_name_placeholder": "Name...",
         "model_name_placeholder": "e.g. deepseek-chat",
-        "base_url_placeholder": "e.g. https://openrouter.ai/api/v1"
+        "base_url_placeholder": "e.g. https://openrouter.ai/api/v1",
+        "zoom_label": "Zoom:",
+        "custom_model_label": "Custom model:",
+        "learning_mode_label": "Learning mode",
+        "learning_mode_hint": "(explains AI corrections in popup)",
+        "learning_prompt_label": "Explanation prompt:",
+        "learning_prompt_placeholder": "Leave empty for default prompt (explains grammar rules and significant changes)",
+        "learning_language_instruction": "IMPORTANT: Regardless of the source text language, your response MUST be ONLY in English."
     },
     "updates": {
         "title": "ClipGen Update Available",
@@ -47,7 +54,8 @@
         "execution_time": "Executed in {seconds:.2f} sec.",
         "stop_request_sent": "Stop request sent...",
         "task_cancelled": "Task cancelled by user.",
-        "task_cancelled_during_request": "Task cancelled during request execution."
+        "task_cancelled_during_request": "Task cancelled during request execution.",
+        "learning_explanation": "Explanation:"
     },
     "dialogs": {
         "confirm_delete_title": "Confirm Deletion",
@@ -56,6 +64,8 @@
         "duplicate_hotkey_title": "Duplicate Hotkey",
         "duplicate_hotkey_message": "The combination {combo} is already used by another action.",
         "confirm_delete_model_message": "Are you sure you want to delete the model '{model_name}'?",
+        "restart_required_title": "Restart Required",
+        "restart_required_message": "Scale changed to {scale}%.<br>Please restart the app to apply changes.",
         "yes_button": "Yes",
         "no_button": "No"
     },
@@ -63,11 +73,13 @@
         "auto_switch_keys": "Auto-switch keys on limit (429)",
         "logs_tab": "Switch to the logs tab",
         "settings_tab": "Switch to the settings tab",
+        "prompts_tab": "Switch to the prompts tab",
         "help_tab": "Switch to the help tab",
         "clear_logs": "Clear all log entries",
         "copy_logs": "Copy the entire log to the clipboard",
         "instructions": "Show a brief usage instruction",
         "stop_task": "Stop the current Gemini request or test",
+        "check_updates": "Check for new versions on GitHub",
         "toggle_keys_visibility": "Show/hide API keys",
         "add_api_key": "Add a new API key",
         "language_selection": "Select the interface language",
@@ -75,9 +87,10 @@
         "api_usage_tooltip": "Number of requests in the last 24 hours",
         "test_api_key": "Check if this key is working",
         "delete_api_key": "Delete this API key",
-        "add_model": "Add a new Gemini model",
+        "add_model": "Add a new model",
         "select_model": "Make this model active",
         "model_test_time_tooltip": "Model response time (in seconds)",
+        "test_model": "Test model response speed",
         "delete_model": "Delete this model",
         "hotkey_input": "Click to change the hotkey combination",
         "color_picker": "Select a color for the logs of this action",
@@ -86,7 +99,20 @@
         "pin_window": "Pin/Unpin window on top",
         "main_action_button": "Click to perform this action ({combination})",
         "check_api_key": "Check if this key is working",
-        "check_model_speed": "Test model response speed"
+        "check_model_speed": "Test model response speed",
+        "provider_dropdown": "Select AI provider (Gemini or OpenAI-compatible)",
+        "proxy_type_dropdown": "Select proxy type (HTTP or SOCKS5)",
+        "autostart_toggle": "Launch ClipGen when Windows starts",
+        "proxy_enable_toggle": "Enable/disable proxy for API requests",
+        "scale_up": "Increase interface scale",
+        "scale_down": "Decrease interface scale",
+        "copy_wallet": "Copy wallet address to clipboard",
+        "proxy_input": "Enter proxy address (login:password@ip:port)",
+        "base_url_input": "API endpoint URL for OpenAI-compatible providers",
+        "action_name_input": "Name displayed in logs and buttons",
+        "prompt_input": "Instructions for AI to process your text",
+        "learning_mode_toggle": "Enable to see explanations of AI corrections in a popup",
+        "learning_prompt_input": "Custom prompt for generating explanations"
     },
     "errors": {
         "all_keys_exhausted": "All available keys checked — limits exceeded everywhere. Check the model used in settings!",
@@ -144,6 +170,12 @@
     ],
     "instruction": {
         "title": "ClipGen Usage Instructions",
+        "basic_steps": [
+            "1. Work in any app where you can type (Word, browser, messengers, IDE...)",
+            "2. Select text or copy an image to clipboard",
+            "3. Press the hotkey for instant AI processing (~0.5 sec)",
+            "4. Result automatically replaces your selection - no window switching!"
+        ],
         "prompt": "Write a brief guide on how to use the ClipGen application. Explain that this app allows users to use Gemini AI capabilities through hotkeys for clipboard operations. Describe the main functions and how to use them. Add 1-2 examples of use. List the standard key combinations and their purpose. Make the text friendly and easy to understand."
     },
     "default_action_name": "New Action",
@@ -192,5 +224,40 @@
         "hotkey_release_error": "Error in on_release: {error}",
         "queue_processing_error": "Error processing queue: {error}",
         "startup_error": "Critical startup error: {error}"
+    },
+    "tray": {
+        "show_hide": "Show/Hide",
+        "quit": "Quit"
+    },
+    "default_learning_prompt": "You are a language tutor. Analyze the corrections made to the text.\n\nIGNORE (don't explain):\n- Typos (random letter mistakes like \"helo\" -> \"hello\")\n- Symbol replacements ($ € ₽)\n- Capitalization changes\n\nEXPLAIN only real mistakes:\n- Spelling: why the word is spelled this way (rule + brief explanation)\n- Punctuation: why comma/dash is needed here\n- Grammar: if word form was corrected\n\nFormat:\n**mistake** -> **correct**\n*Rule: brief explanation*\n\n---\nOriginal: {original}\nResult: {result}\n\nIf only typos were fixed — return empty string.",
+    "help": {
+        "welcome_title": "Welcome to ClipGen!",
+        "welcome_text": "This is your personal AI assistant, built right into your clipboard.",
+        "how_it_works_title": "How It Works",
+        "step1_title": "Step 1: Get an API Key (Required)",
+        "step1_text": "ClipGen works via the Gemini API. Without a key, it won't work. It's free and fast.",
+        "step1_list": [
+            "Go to the <a href='https://aistudio.google.com/api-keys' style='color: #81b3f0;'>Google AI Studio</a> page and get your key.",
+            "Paste it in the <b>Settings</b> tab. You can add multiple keys if you hit the usage limits.",
+            "Check if the key is working by clicking the gray status indicator button next to it."
+        ],
+        "step2_title": "Step 2: Select, Press, and Get the Result",
+        "step2_text": "ClipGen only reads your clipboard at the moment you press a hotkey. Simply select text (or copy an image) in <b>any program</b> (browser, messenger, code editor) and press a hotkey. ClipGen will copy the content, process it, and paste the result back in place of the selection. If there's nowhere to paste, the result will appear in the logs.",
+        "step3_title": "Step 3: Watch the Tray Icon",
+        "step3_text": "The system tray icon shows the status: <b style='color:#FFBF08;'>yellow</b> for processing, <b style='color:#28A745;'>green</b> for success, and <b style='color:#F33100;'>red</b> for an error.",
+        "personalization_title": "Personalization",
+        "personalization_text": "The power of ClipGen is its flexibility. Go to the <b>Settings</b> tab to:",
+        "personalization_list": [
+            "<b>Create your own hotkeys.</b> Add new actions, delete old ones, and assign any key combination you like.",
+            "<b>Experiment with prompts.</b> I've created prompts that are perfect for me, but you can write your own to solve your unique, repetitive tasks.",
+            "<b>Manage Gemini models.</b> Add new models (find the current list <a href='https://ai.google.dev/gemini-api/docs/models' style='color: #81b3f0;'>here</a>), test their speed, and choose the best one for your needs. Remember: smarter models take longer to respond."
+        ],
+        "feedback_title": "Feedback and New Projects",
+        "feedback_text": "My name is <b>VETA (Vitalii Kalistratov)</b>. If you have any questions or suggestions, you can write them in my <a href='https://t.me/VETA14' style='color: #81b3f0;'>Telegram channel</a>, where I share my new works, thoughts, and experiments. Feel free to join!",
+        "website_text": "<b>My website:</b> <a href='http://vetaone.site/' style='color: #81b3f0;'>vetaone.site</a>",
+        "support_title": "Support the Project",
+        "support_text": "If you find ClipGen useful, please consider supporting its future development. It motivates me to add new features.",
+        "copy_button": "Copy",
+        "copied": "Copied!"
     }
 }
