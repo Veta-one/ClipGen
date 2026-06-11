@@ -1,9 +1,65 @@
 """Update checker - checks GitHub releases for new versions."""
 
 import json
+import logging
+import re
 import threading
 import urllib.request
 from typing import Callable, Optional
+
+logger = logging.getLogger('ClipGen')
+
+
+_LANG_BLOCK_RE = re.compile(
+    r"<!--\s*lang:([a-zA-Z-]+)\s*-->(.*?)<!--\s*/lang\s*-->",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def extract_notes_blocks(body: str) -> dict:
+    """Return all language blocks from a release body as ``{code: text}``.
+
+    Release bodies may carry several language variants wrapped in HTML
+    comments, which GitHub hides on the rendered release page:
+
+        <!-- lang:ru -->
+        ...русский текст...
+        <!-- /lang -->
+
+        <!-- lang:en -->
+        ...english text...
+        <!-- /lang -->
+
+    Anything outside the marked blocks (visible separators/headers for the
+    GitHub page) is dropped. Returns an empty dict for releases published
+    before this convention — callers must fall back to the raw body.
+    """
+    blocks: dict = {}
+    if not body:
+        return blocks
+    for match in _LANG_BLOCK_RE.finditer(body):
+        code = match.group(1).strip().lower()
+        blocks.setdefault(code, match.group(2).strip())
+    return blocks
+
+
+def extract_localized_notes(body: str, lang_code: str) -> str:
+    """Pick the release-notes block matching the UI language.
+
+    Falls back to English, then to the first block, then to the unmodified
+    body (releases without language markers must keep working).
+    """
+    if not body:
+        return body
+    blocks = extract_notes_blocks(body)
+    if not blocks:
+        return body
+    code = (lang_code or "en").strip().lower()
+    if code in blocks:
+        return blocks[code]
+    if "en" in blocks:
+        return blocks["en"]
+    return next(iter(blocks.values()))
 
 
 class UpdateChecker(threading.Thread):
@@ -55,7 +111,7 @@ class UpdateChecker(threading.Thread):
                 self.not_found_callback()
 
         except Exception as e:
-            print(f"Update check failed: {e}")
+            logger.warning("Update check failed: %s", e)
             if self.is_manual:
                 self.not_found_callback()
 

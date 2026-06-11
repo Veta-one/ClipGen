@@ -50,7 +50,9 @@ class HelpTab(QWidget):
         donate_layout.setSpacing(10)
 
         # Label
-        self.usdt_label = QLabel("USDT (TRC-20):")
+        self.usdt_label = QLabel(
+            self.lang.get("help", {}).get("usdt_label", "USDT (TRC-20):")
+        )
         self.usdt_label.setStyleSheet("background-color: transparent;")
         donate_layout.addWidget(self.usdt_label)
 
@@ -179,3 +181,4 @@ class HelpTab(QWidget):
 
         help_lang = lang.get("help", {})
         self.copy_button.setText(help_lang.get("copy_button", "Copy"))
+        self.usdt_label.setText(help_lang.get("usdt_label", "USDT (TRC-20):"))

@@ -1,6 +1,10 @@
 """Main application window."""
 
+import logging
+import os
 import time
+from typing import Optional
+
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QStackedWidget, QSizePolicy
@@ -8,13 +12,23 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QIcon
 from ctypes import windll, c_bool, c_int, byref
-import os
+
+logger = logging.getLogger("ClipGen")
 
 from .styles import Styles
 from .tray import TrayIconManager
 from .tabs import LogTab, SettingsTab, PromptsTab, HelpTab
 from .dialogs import InfoMessageBox, CustomMessageBox
 from .notifications import ToastNotification
+from .overlay import (
+    TranscriptionOverlay,
+    STATE_HIDDEN,
+    STATE_LOADING,
+    STATE_RECORDING,
+    STATE_TRANSCRIBING,
+    STATE_READY as OV_READY,
+    STATE_ERROR as OV_ERROR,
+)
 from ..core.constants import resource_path
 
 
@@ -33,6 +47,12 @@ class MainWindow(QMainWindow):
     # Update signals (called from background thread)
     update_found_signal = pyqtSignal(str, str, str)  # version, url, notes
     update_not_found_signal = pyqtSignal()
+
+    # Voice transcription signals (cross-thread safe)
+    transcription_state_signal = pyqtSignal(str)            # model state
+    transcription_ui_signal = pyqtSignal(str, str)          # ui state, message
+    transcription_info_signal = pyqtSignal(dict)            # runtime info dict
+    transcription_time_signal = pyqtSignal(str)             # elapsed seconds
 
     def __init__(self, app):
         """Initialize main window.
@@ -114,6 +134,9 @@ class MainWindow(QMainWindow):
         # Toast notification for learning mode
         self.toast = ToastNotification()
 
+        # Top-right overlay for transcription status
+        self.transcription_overlay = TranscriptionOverlay(self.lang)
+
     def _setup_action_buttons(self, layout: QVBoxLayout) -> None:
         """Set up hotkey action buttons."""
         self.action_widget = QWidget()
@@ -164,8 +187,11 @@ class MainWindow(QMainWindow):
             color = hotkey.get("log_color", "#FFFFFF")
             name = hotkey.get("name", "")
             combination = hotkey.get("combination", "")
+            hotkey_type = hotkey.get("type", "text_action")
+            is_voice = hotkey_type == "transcription"
 
-            btn = QPushButton(name)
+            display_name = (f"[voice] {name}" if is_voice else name)
+            btn = QPushButton(display_name)
             btn.setToolTip(tooltip_template.format(combination=combination))
             btn.setFixedHeight(30)
             btn.setStyleSheet(f"""
@@ -184,10 +210,18 @@ class MainWindow(QMainWindow):
                 }}
             """)
 
-            # Connect to trigger hotkey
-            btn.clicked.connect(
-                lambda checked, h=hotkey: self._trigger_hotkey(h)
-            )
+            if is_voice:
+                # Push-to-talk semantics on the action button.
+                btn.pressed.connect(
+                    lambda h=hotkey: self._trigger_voice_press(h)
+                )
+                btn.released.connect(
+                    lambda h=hotkey: self._trigger_voice_release(h)
+                )
+            else:
+                btn.clicked.connect(
+                    lambda checked, h=hotkey: self._trigger_hotkey(h)
+                )
 
             rows[row_idx].append(btn)
             self.action_buttons[combination] = btn
@@ -203,8 +237,25 @@ class MainWindow(QMainWindow):
     def _trigger_hotkey(self, hotkey: dict) -> None:
         """Trigger a hotkey action via queue."""
         self.app.hotkey_queue.put({
+            "kind": "text_action",
             "action": hotkey.get("name", ""),
             "prompt": hotkey.get("prompt", "")
+        })
+
+    def _trigger_voice_press(self, hotkey: dict) -> None:
+        """Push-to-talk press from action button."""
+        self.app.hotkey_queue.put({
+            "kind": "transcription_start",
+            "action": hotkey.get("name", ""),
+            "hotkey": hotkey,
+        })
+
+    def _trigger_voice_release(self, hotkey: dict) -> None:
+        """Push-to-talk release from action button."""
+        self.app.hotkey_queue.put({
+            "kind": "transcription_stop",
+            "action": hotkey.get("name", ""),
+            "hotkey": hotkey,
         })
 
     def _setup_navigation(self, layout: QVBoxLayout) -> None:
@@ -328,6 +379,12 @@ class MainWindow(QMainWindow):
         # Learning mode explanation signal
         self.show_explanation_signal.connect(self._show_explanation)
 
+        # Transcription signals
+        self.transcription_ui_signal.connect(self._on_transcription_ui_state)
+        self.transcription_state_signal.connect(self._on_transcription_model_state)
+        self.transcription_info_signal.connect(self._on_transcription_info)
+        self.transcription_time_signal.connect(self._on_transcription_time)
+
         # Auto-check for updates after 3 seconds
         QTimer.singleShot(3000, self._auto_check_updates)
 
@@ -389,6 +446,26 @@ class MainWindow(QMainWindow):
         st.language_changed.connect(self._on_language_changed)
         st.scale_changed.connect(self._on_scale_changed)
 
+        # Transcription
+        st.transcription_enable_toggled.connect(self._on_tr_enable_toggled)
+        st.transcription_preload_toggled.connect(self._on_tr_preload_toggled)
+        st.transcription_load_clicked.connect(self._on_tr_load_clicked)
+        st.transcription_unload_clicked.connect(self._on_tr_unload_clicked)
+        st.transcription_install_clicked.connect(self._on_tr_install_clicked)
+        st.transcription_engine_changed.connect(self._on_tr_engine_changed)
+        st.transcription_model_changed.connect(self._on_tr_model_changed)
+        st.transcription_device_changed.connect(self._on_tr_device_changed)
+        st.transcription_compute_changed.connect(self._on_tr_compute_changed)
+        st.transcription_auto_unload_changed.connect(self._on_tr_auto_unload_changed)
+        st.transcription_default_language_changed.connect(self._on_tr_default_lang_changed)
+        st.transcription_beam_size_changed.connect(self._on_tr_beam_changed)
+        st.transcription_vad_toggled.connect(self._on_tr_vad_toggled)
+        st.transcription_hallucinations_toggled.connect(self._on_tr_hall_toggled)
+        st.transcription_feedback_sounds_toggled.connect(self._on_tr_sounds_toggled)
+        st.transcription_input_device_changed.connect(self._on_tr_input_device_changed)
+        st.parakeet_provider_changed.connect(self._on_parakeet_provider_changed)
+        st.parakeet_quantization_changed.connect(self._on_parakeet_quantization_changed)
+
     def _connect_prompts_signals(self) -> None:
         """Connect prompts tab signals."""
         pt = self.prompts_tab
@@ -421,6 +498,16 @@ class MainWindow(QMainWindow):
         )
         pt.learning_prompt_changed.connect(
             lambda i, v: self.app.hotkey_manager.update_learning_prompt(i, v)
+        )
+        pt.type_changed.connect(self._on_hotkey_type_changed)
+        pt.transcription_language_changed.connect(
+            lambda i, v: self.app.hotkey_manager.update_transcription_language(i, v)
+        )
+        pt.transcription_initial_prompt_changed.connect(
+            lambda i, v: self.app.hotkey_manager.update_transcription_initial_prompt(i, v)
+        )
+        pt.transcription_strip_trailing_period_changed.connect(
+            lambda i, v: self.app.hotkey_manager.update_transcription_strip_trailing_period(i, v)
         )
 
     # === Event Handlers ===
@@ -590,6 +677,13 @@ class MainWindow(QMainWindow):
         start_time = time.time()
         self.model_test_start_times[timer_key] = start_time
 
+        # A rapid re-click would otherwise overwrite the previous QTimer in
+        # the dict while it keeps ticking in the background.
+        old_timer = self.model_test_qtimers.pop(timer_key, None)
+        if old_timer is not None:
+            old_timer.stop()
+            old_timer.deleteLater()
+
         # Create and start QTimer for live updates
         timer = QTimer(self)
         timer.timeout.connect(lambda: self._update_model_test_timer_display(provider, index))
@@ -618,9 +712,10 @@ class MainWindow(QMainWindow):
         models = self.config.get(key, [])
         if index >= len(models) or models[index].get("test_status") != "testing":
             # Stop timer
-            if timer_key in self.model_test_qtimers:
-                self.model_test_qtimers[timer_key].stop()
-                del self.model_test_qtimers[timer_key]
+            timer = self.model_test_qtimers.pop(timer_key, None)
+            if timer is not None:
+                timer.stop()
+                timer.deleteLater()
             if timer_key in self.model_test_start_times:
                 del self.model_test_start_times[timer_key]
             return
@@ -668,6 +763,14 @@ class MainWindow(QMainWindow):
 
         # Update processor language for learning mode prompts
         self.app.processor.lang = self.app.i18n.lang
+
+        # Propagate language to transcription components if active.
+        if getattr(self.app, "transcriber", None) is not None:
+            self.app.transcriber.update_lang(self.app.i18n.lang)
+        if getattr(self.app, "model_manager", None) is not None:
+            self.app.model_manager.update_lang(self.app.i18n.lang)
+        if hasattr(self, "transcription_overlay"):
+            self.transcription_overlay.update_lang(self.app.i18n.lang)
 
         # Update all UI elements with new language
         self._update_all_language()
@@ -727,6 +830,11 @@ class MainWindow(QMainWindow):
         self.prompts_tab.refresh()
         self._refresh_action_buttons()
 
+    def _on_hotkey_type_changed(self, index: int, hotkey_type: str) -> None:
+        """Persist hotkey type and refresh action buttons (label changes)."""
+        self.app.hotkey_manager.update_type(index, hotkey_type)
+        self._refresh_action_buttons()
+
     def _delete_hotkey(self, index: int) -> None:
         hotkeys = self.config.get("hotkeys", [])
         if 0 <= index < len(hotkeys):
@@ -759,6 +867,8 @@ class MainWindow(QMainWindow):
 
     def _stop_current_task(self) -> None:
         self.app.processor.cancel_current()
+        if getattr(self.app, "model_manager", None) is not None:
+            self.app.model_manager.cancel_transcription()
 
     def _check_updates(self) -> None:
         from ..utils.updates import UpdateChecker
@@ -786,6 +896,23 @@ class MainWindow(QMainWindow):
         import re
         import webbrowser
         from PyQt5.QtWidgets import QDialog
+        from ..utils.updates import extract_notes_blocks
+
+        # Release bodies can be multilingual. Open on the UI language
+        # (English for any non-Russian locale); the dialog shows a switcher
+        # so the user can flip between the available variants. Releases
+        # published without markers pass through unchanged.
+        blocks = extract_notes_blocks(notes)
+        ui_lang = (self.config.get("language", "en") or "en").strip().lower()
+        default_code = None
+        if blocks:
+            if ui_lang in blocks:
+                default_code = ui_lang
+            elif "en" in blocks:
+                default_code = "en"
+            else:
+                default_code = next(iter(blocks))
+            notes = blocks[default_code]
 
         self.tray.set_update()
 
@@ -799,7 +926,8 @@ class MainWindow(QMainWindow):
         # Log release notes if available
         if notes:
             # Clean up markdown for plain text log
-            clean_notes = notes.replace("### ", "").replace("**", "").replace("* ", "• ")
+            clean_notes = (notes.replace("### ", "").replace("## ", "")
+                           .replace("**", "").replace("* ", "• "))
             for line in clean_notes.strip().split("\n"):
                 if line.strip():
                     self.log_tab.append_log(f"  {line.strip()}", "#AAAAAA")
@@ -810,32 +938,44 @@ class MainWindow(QMainWindow):
             new_version=version
         )
 
-        # Format release notes
-        notes_html = ""
-        if notes:
-            formatted_notes = notes.replace("\r\n", "<br>").replace("\n", "<br>")
+        # Format release notes (markdown subset -> Qt rich text)
+        def notes_to_html(raw: str) -> str:
+            formatted = raw.replace("\r\n", "<br>").replace("\n", "<br>")
             # Bold text
-            while "**" in formatted_notes:
-                formatted_notes = formatted_notes.replace("**", "<b>", 1).replace("**", "</b>", 1)
-            # Headers
-            formatted_notes = re.sub(
-                r'### (.*?)(<br>|$)',
+            while "**" in formatted:
+                formatted = formatted.replace("**", "<b>", 1).replace("**", "</b>", 1)
+            # Headers (both ## and ###)
+            formatted = re.sub(
+                r'#{2,3}\s+(.*?)(<br>|$)',
                 r'<h3 style="color: #A3BFFA; margin: 10px 0 5px 0;">\1</h3>',
-                formatted_notes
+                formatted
             )
             # Bullet points
-            formatted_notes = formatted_notes.replace("* ", "&nbsp;&nbsp;• ")
-            notes_html = f"<hr style='border: 1px solid #444; margin: 10px 0;'><div style='font-family: sans-serif;'>{formatted_notes}</div>"
+            formatted = formatted.replace("* ", "&nbsp;&nbsp;• ")
+            return (f"<hr style='border: 1px solid #444; margin: 10px 0;'>"
+                    f"<div style='font-family: sans-serif;'>{formatted}</div>")
 
-        full_text = f"{header}{notes_html}"
+        full_text = f"{header}{notes_to_html(notes) if notes else ''}"
 
-        # Create dialog
+        # One pre-rendered HTML body per language for the dialog switcher.
+        html_variants = None
+        if len(blocks) > 1:
+            html_variants = {
+                code: f"{header}{notes_to_html(text)}"
+                for code, text in blocks.items()
+            }
+
+        # Create dialog. Release notes can be long, so render them in a
+        # scrollable body — the action buttons must always stay on screen.
         dialog = CustomMessageBox(
             self,
             title,
             full_text,
             yes_text=updates_lang.get("download_button", "Go to website"),
-            no_text=updates_lang.get("skip_button", "Skip this version")
+            no_text=updates_lang.get("skip_button", "Skip this version"),
+            scrollable=bool(notes),
+            html_variants=html_variants,
+            default_variant=default_code
         )
 
         # Override button styles: Download = green, Skip = red
@@ -1086,6 +1226,11 @@ class MainWindow(QMainWindow):
         self._set_dark_titlebar()
         # Refresh buttons after window is visible (has correct width)
         QTimer.singleShot(100, self._refresh_action_buttons)
+        # Arm transcription buttons only after the launch event queue has
+        # fully drained — guards against stray Enter/click events from the
+        # terminal that launched ClipGen activating the heavy "Load model"
+        # button before the user actually interacts with the UI.
+        QTimer.singleShot(1500, self.settings_tab.arm_transcription_buttons)
 
     def _set_dark_titlebar(self) -> None:
         """Set Windows 11 dark titlebar."""
@@ -1114,3 +1259,528 @@ class MainWindow(QMainWindow):
         """Apply global styles to the application."""
         from PyQt5.QtWidgets import QApplication
         QApplication.instance().setStyleSheet(Styles.global_app_style())
+
+    # ------------------------------------------------------------------ transcription settings handlers
+
+    def _tr_cfg(self) -> dict:
+        """Get the transcription config dict, creating it if needed."""
+        if "transcription" not in self.config:
+            self.config["transcription"] = {}
+        return self.config["transcription"]
+
+    def _whisper_cfg(self) -> dict:
+        """Whisper engine sub-config (creates it on first access)."""
+        tr = self._tr_cfg()
+        sub = tr.get("whisper")
+        if not isinstance(sub, dict):
+            sub = {}
+            tr["whisper"] = sub
+        return sub
+
+    def _parakeet_cfg(self) -> dict:
+        """Parakeet engine sub-config (creates it on first access)."""
+        tr = self._tr_cfg()
+        sub = tr.get("parakeet")
+        if not isinstance(sub, dict):
+            sub = {}
+            tr["parakeet"] = sub
+        return sub
+
+    def _on_tr_enable_toggled(self, enabled: bool) -> None:
+        self._tr_cfg()["enabled"] = enabled
+        self.app.config.save()
+        if enabled:
+            # Lazy initialize transcriber + model manager.
+            self.app._maybe_init_transcription(force=True)
+
+    def _on_tr_preload_toggled(self, enabled: bool) -> None:
+        self._tr_cfg()["preload_on_start"] = enabled
+        self.app.config.save()
+
+    def _on_tr_load_clicked(self) -> None:
+        if not self.app._maybe_init_transcription(force=True):
+            return
+        self.app.model_manager.load_async()
+
+    def _on_tr_unload_clicked(self) -> None:
+        if self.app.model_manager is not None:
+            self.app.model_manager.unload()
+
+    def _on_tr_install_clicked(self) -> None:
+        """Install Python deps AND download the active engine's model.
+
+        Flow:
+          1. Run pip install for missing dependencies of the picked engine.
+             Streams a humanized status line per package (no raw pip noise).
+          2. After deps are ready, kick off the engine model download
+             (skipped if it's already on disk).
+          3. On finish, the load button automatically flips to "Загрузить
+             модель" thanks to update_transcription_state().
+        """
+        from ..transcription.deps import install_dependencies
+
+        if getattr(self.settings_tab, "_tr_install_busy", False):
+            if self.app.model_manager is not None:
+                self.app.model_manager.cancel_download()
+            return
+
+        engine = (self._tr_cfg().get("engine") or "whisper").lower()
+
+        self.settings_tab.set_transcription_install_busy(True)
+        # Reset pip progress tracker so previous install state doesn't leak.
+        self._pip_progress = {
+            "current_pkg": None,    # name from latest "Downloading X (Y MB)" line
+            "total_bytes": 0,
+            "last_pct": -1,         # last percentage we emitted
+            "last_emit_ts": 0.0,    # last time we emitted any progress line
+        }
+        logs = self.lang.get("logs", {})
+        # Prefer engine-specific copy so the log header isn't misleading
+        # when the user picked Parakeet but sees "Whisper".
+        install_msg = logs.get(
+            f"transcription_install_started_{engine}",
+            logs.get(
+                "transcription_install_started",
+                "Installing transcription dependencies..."
+            ),
+        )
+        self.log_signal.emit(install_msg, "#A3BFFA")
+
+        # Humanize raw pip output: only emit a clean line when pip
+        # actually starts a meaningful step.
+        def on_log(line: str) -> None:
+            humanized = self._humanize_pip_line(line)
+            if humanized is not None:
+                color = "#888888"
+                if humanized.startswith("ERROR") or "error" in humanized.lower():
+                    color = "#FF5F57"
+                self.log_signal.emit(humanized, color)
+            else:
+                # Drop verbose noise into debug log only.
+                logger.debug("pip: %s", line)
+
+        def on_deps_done(ok: bool, err: str = None) -> None:
+            if not ok:
+                self.settings_tab.set_transcription_install_busy(False)
+                logs_lang = self.lang.get("logs", {})
+                from ..transcription.deps import PYTHON_NOT_FOUND_ERROR
+                if err == PYTHON_NOT_FOUND_ERROR:
+                    # The most common first-run blocker on a clean machine:
+                    # no system Python. Tell the user exactly what to do.
+                    self.log_signal.emit(
+                        logs_lang.get(
+                            "transcription_python_missing",
+                            "Python not found. Install Python 3.10+ from "
+                            "python.org (tick \"Add python.exe to PATH\") "
+                            "and click Install / Download again."
+                        ),
+                        "#FF5F57",
+                    )
+                    return
+                try:
+                    from ..transcription.diagnostics import write_diagnostics_report
+                    report_path = write_diagnostics_report(self.config)
+                    logger.info("Transcription diagnostics written to %s", report_path)
+                except Exception:
+                    logger.debug("Failed to write transcription diagnostics", exc_info=True)
+                template = logs_lang.get(
+                    "transcription_install_failed",
+                    "Installation failed: {error}"
+                )
+                self.log_signal.emit(
+                    template.format(error=err or "unknown"),
+                    "#FF5F57",
+                )
+                return
+
+            # Sanity check: pip reported success, but can THIS process see
+            # the packages? On a clean machine the user-site dir is created
+            # by the install itself (check_dependencies pulls it onto
+            # sys.path); a version-mismatched system Python is the one case
+            # that still needs user action.
+            from ..transcription.deps import check_dependencies_for_engine
+            still_missing = check_dependencies_for_engine(engine, include_cuda=False)
+            if still_missing:
+                self.settings_tab.set_transcription_install_busy(False)
+                import sys as _sys
+                version = f"{_sys.version_info.major}.{_sys.version_info.minor}"
+                template = self.lang.get("logs", {}).get(
+                    "transcription_deps_not_visible",
+                    "Packages installed, but the app cannot see them. "
+                    "Restart ClipGen. If that does not help, install "
+                    "Python {version} from python.org."
+                )
+                try:
+                    msg = template.format(version=version)
+                except (KeyError, IndexError, ValueError):
+                    msg = template
+                self.log_signal.emit(msg, "#FF5F57")
+                return
+
+            self.log_signal.emit(
+                self.lang.get("logs", {}).get(
+                    "transcription_install_done",
+                    "Dependencies installed successfully"
+                ),
+                "#28A745",
+            )
+
+            # Initialise transcriber (creates model_manager) and start the
+            # model download phase.
+            if not self.app._maybe_init_transcription(force=True):
+                self.settings_tab.set_transcription_install_busy(False)
+                return
+
+            mm = self.app.model_manager
+            if engine == "parakeet":
+                from ..transcription.parakeet_manager import is_parakeet_downloaded
+                already = is_parakeet_downloaded()
+            else:
+                from ..transcription.model_manager import is_model_downloaded
+                already = is_model_downloaded(
+                    self._whisper_cfg().get("model", "large-v3")
+                )
+
+            if already:
+                # Nothing to download.
+                self.settings_tab.set_transcription_install_busy(False)
+                self.log_signal.emit(
+                    self.lang.get("logs", {}).get(
+                        "transcription_already_downloaded",
+                        "Model already on disk — ready to load."
+                    ),
+                    "#28A745",
+                )
+                # Refresh the button label (now downloaded → "Загрузить").
+                self.settings_tab.update_transcription_state("unloaded")
+                return
+
+            # Watch for download finish to flip the install button back.
+            def watch_state(state: str) -> None:
+                if state in ("unloaded", "error"):
+                    self.settings_tab.set_transcription_install_busy(False)
+                    self.settings_tab.update_transcription_state(state)
+                    try:
+                        mm.state_changed.disconnect(watch_state)
+                    except Exception:
+                        pass
+
+            mm.state_changed.connect(watch_state)
+            self.settings_tab.set_transcription_install_busy(True, cancellable=True)
+            mm.download_async()
+
+        install_dependencies(on_log=on_log, on_done=on_deps_done, engine=engine)
+
+    def _humanize_pip_line(self, raw: str) -> Optional[str]:
+        """Convert a raw pip stdout line into a friendly status line.
+
+        Returns None if the line is verbose noise we want to suppress.
+        Stateful: tracks the currently-downloading package so the
+        ``Progress N of M`` lines pip emits with ``--progress-bar raw``
+        can be turned into a humanised "65% (158/245 MB)" line.
+        """
+        line = raw.strip()
+        if not line:
+            return None
+
+        if line.startswith("Running:"):
+            return None  # we already announced the install starting
+        if line.startswith("Collecting "):
+            pkg = line[len("Collecting "):].split()[0]
+            return self.lang.get("logs", {}).get(
+                "pip_collecting",
+                "  Downloading {package}...",
+            ).format(package=pkg)
+        if line.startswith("Downloading ") or line.startswith("Using cached "):
+            # "Downloading onnxruntime_gpu-1.20.1-...whl (245.4 MB)"
+            # "Using cached onnxruntime_gpu-1.20.1-...whl (245.4 MB)"  ← from pip's wheel cache
+            # Both are user-visible — the size hint tells the user how long
+            # to expect to wait, and "cached" actually means "no download
+            # needed, instant install". Also stash filename + size so later
+            # "Progress" lines (only for real downloads) can annotate.
+            prefix = "Downloading " if line.startswith("Downloading ") else "Using cached "
+            rest = line[len(prefix):].strip()
+            filename = rest.split(" ")[0]
+            # Filter out metadata-only entries — pip prints these when it
+            # only needs to fetch the .metadata file, not the wheel itself.
+            # They don't represent a real install step.
+            if filename.endswith(".metadata"):
+                return None
+            size_mb = self._extract_size_mb(rest)
+            state = getattr(self, "_pip_progress", None)
+            if state is not None:
+                state["current_pkg"] = filename
+                state["total_bytes"] = int(size_mb * 1024 * 1024) if size_mb else 0
+                state["last_pct"] = -1
+                state["last_emit_ts"] = 0.0
+            cached = prefix == "Using cached "
+            tmpl_key = "pip_using_cached" if cached else "pip_downloading_size"
+            template = self.lang.get("logs", {}).get(
+                tmpl_key,
+                "  Cached {filename}{size}" if cached else "  Downloading {filename}{size}...",
+            )
+            size_suffix = f" ({size_mb:.1f} MB)" if size_mb else ""
+            return template.format(filename=filename, size=size_suffix)
+        if line.startswith("Progress "):
+            return self._format_pip_progress_line(line)
+        if line.startswith("Requirement already satisfied:"):
+            rest = line[len("Requirement already satisfied:"):].strip()
+            pkg = rest.split()[0]
+            return self.lang.get("logs", {}).get(
+                "pip_already_installed",
+                "  {package} is already installed",
+            ).format(package=pkg)
+        if line.startswith("Installing collected packages:"):
+            return self.lang.get("logs", {}).get(
+                "pip_installing_packages",
+                "  Installing packages...",
+            )
+        if line.startswith("Successfully installed"):
+            pkgs = line[len("Successfully installed"):].strip()
+            return self.lang.get("logs", {}).get(
+                "pip_installed",
+                "  Installed: {packages}",
+            ).format(packages=pkgs)
+        if line.startswith("ERROR:") or line.startswith("error:"):
+            return line  # surface real errors
+        if line.startswith("WARNING:") or line.startswith("[notice]"):
+            return None  # benign upgrade-pip notices etc.
+        return None
+
+    @staticmethod
+    def _extract_size_mb(text: str) -> float:
+        """Pull the size out of a pip ``Downloading X (245.4 MB)`` tail.
+
+        Returns 0.0 when no size annotation is present (e.g. when pip is
+        installing from a local cache and skips the size hint).
+        """
+        import re
+        match = re.search(r"\(([0-9.]+)\s*(kB|MB|GB|B)\)", text)
+        if not match:
+            return 0.0
+        value = float(match.group(1))
+        unit = match.group(2)
+        if unit == "GB":
+            return value * 1024
+        if unit == "kB":
+            return value / 1024
+        if unit == "B":
+            return value / (1024 * 1024)
+        return value  # MB
+
+    def _format_pip_progress_line(self, line: str) -> Optional[str]:
+        """Turn a single ``Progress N of M`` line into a throttled UI line.
+
+        We emit at most one update per ~2 seconds AND only when the
+        percentage advanced by ≥3% since the last emit, to avoid spamming
+        the log with hundreds of lines for a 245 MB wheel.
+        """
+        import re
+        import time as _time
+        match = re.match(r"Progress\s+(\d+)\s+of\s+(\d+)", line)
+        if not match:
+            return None
+        completed = int(match.group(1))
+        total = int(match.group(2))
+        if total <= 0:
+            return None
+
+        state = getattr(self, "_pip_progress", None)
+        if state is None:
+            return None
+
+        # Pip resets ``completed`` to 0 on the next file in the same
+        # install run; treat that as a new download starting.
+        if completed < (state.get("last_completed") or 0):
+            state["last_pct"] = -1
+            state["last_emit_ts"] = 0.0
+        state["last_completed"] = completed
+
+        pct = int(completed * 100 / total)
+        now = _time.time()
+
+        # Throttle: at least 3% advance AND at least 1.5s since last emit,
+        # OR a 100% completion (always show the final tick).
+        if pct < 100:
+            if pct - (state.get("last_pct") or -1) < 3:
+                return None
+            if now - (state.get("last_emit_ts") or 0.0) < 1.5:
+                return None
+
+        state["last_pct"] = pct
+        state["last_emit_ts"] = now
+
+        done_mb = completed / (1024 * 1024)
+        total_mb = total / (1024 * 1024)
+        template = self.lang.get("logs", {}).get(
+            "pip_progress",
+            "    {pct}% ({done:.1f}/{total:.1f} MB)",
+        )
+        return template.format(pct=pct, done=done_mb, total=total_mb)
+
+    def _on_tr_model_changed(self, model: str) -> None:
+        self._whisper_cfg()["model"] = model
+        self.app.config.save()
+        if model == "large-v3":
+            self.log_signal.emit(
+                self.lang.get("logs", {}).get(
+                    "transcription_large_model_warning",
+                    "  large-v3 needs more memory and may load slowly; medium/small is usually better for fast push-to-talk.",
+                ),
+                "#FFC107",
+            )
+        self._tr_unload_for_reload()
+
+    def _on_tr_device_changed(self, device: str) -> None:
+        self._whisper_cfg()["device"] = device
+        self.app.config.save()
+        self._tr_unload_for_reload()
+
+    def _on_tr_compute_changed(self, compute: str) -> None:
+        self._whisper_cfg()["compute_type"] = compute
+        self.app.config.save()
+        self._tr_unload_for_reload()
+
+    def _tr_unload_for_reload(self) -> None:
+        """Unload the model when a construction-time setting changes.
+
+        ``model`` / ``device`` / ``compute_type`` are baked into the
+        WhisperModel constructor and only take effect on the next load.
+
+        We deliberately do NOT auto-reload — the user must explicitly
+        press "Load model" again. This avoids surprise CUDA/VRAM activity
+        from a misclick in the model dropdown (especially since there is
+        no "cancel download" affordance for the heavy ``large-v3`` model).
+        """
+        if self.app.model_manager is None:
+            return
+        if not self.app.model_manager.is_loaded():
+            # Even if not loaded, refresh install button label since the
+            # selected model may not be downloaded yet.
+            self.settings_tab.refresh_install_button_state()
+            return
+
+        self.log_signal.emit(
+            self.lang.get("logs", {}).get(
+                "transcription_settings_changed",
+                "Transcription settings changed — model unloaded; "
+                "press \"Load model\" to apply."
+            ),
+            "#FFC107",
+        )
+        self.app.model_manager.unload()
+        self.settings_tab.refresh_install_button_state()
+
+    def _on_tr_auto_unload_changed(self, minutes: int) -> None:
+        self._tr_cfg()["auto_unload_minutes"] = int(minutes)
+        self.app.config.save()
+        # Apply immediately if model is loaded.
+        if self.app.model_manager is not None:
+            self.app.model_manager.reset_idle()
+
+    def _on_tr_default_lang_changed(self, language: str) -> None:
+        self._tr_cfg()["default_language"] = language
+        self.app.config.save()
+
+    def _on_tr_beam_changed(self, beam: int) -> None:
+        self._whisper_cfg()["beam_size"] = int(beam)
+        self.app.config.save()
+        if int(beam) > 1:
+            self.log_signal.emit(
+                self.lang.get("logs", {}).get(
+                    "transcription_beam_warning",
+                    "  Beam size {beam} may improve quality, but increases transcription latency.",
+                ).format(beam=int(beam)),
+                "#FFC107",
+            )
+
+    def _on_tr_vad_toggled(self, enabled: bool) -> None:
+        self._whisper_cfg()["vad_filter"] = enabled
+        self.app.config.save()
+
+    def _on_tr_engine_changed(self, engine: str) -> None:
+        """User picked a different ASR engine — hot-switch."""
+        engine = (engine or "whisper").lower()
+        # _reinit_transcription writes config["transcription"]["engine"] = engine
+        # and saves before returning. Doing this BEFORE the UI refresh is
+        # essential — refresh_install_button_state() and update_transcription_state()
+        # both call self._active_engine_name() which reads that key, and would
+        # otherwise reflect the previous engine's state.
+        self.app._reinit_transcription(engine)
+        try:
+            self.settings_tab.refresh_install_button_state()
+            self.settings_tab.update_transcription_state("unloaded")
+        except Exception:
+            pass
+
+    def _on_parakeet_provider_changed(self, provider: str) -> None:
+        """Provider preference is the first item; CPU is always the tail
+        fallback so onnxruntime can degrade gracefully if the GPU EP fails
+        to initialise."""
+        chain = [provider] if provider else ["CUDA"]
+        if "CPU" not in chain:
+            chain.append("CPU")
+        self._parakeet_cfg()["providers"] = chain
+        self.app.config.save()
+        self._tr_unload_for_reload()
+
+    def _on_parakeet_quantization_changed(self, quant: str) -> None:
+        self._parakeet_cfg()["quantization"] = quant or ""
+        self.app.config.save()
+        self._tr_unload_for_reload()
+
+    def _on_tr_hall_toggled(self, enabled: bool) -> None:
+        self._tr_cfg()["filter_hallucinations"] = enabled
+        self.app.config.save()
+
+    def _on_tr_sounds_toggled(self, enabled: bool) -> None:
+        self._tr_cfg()["feedback_sounds"] = enabled
+        self.app.config.save()
+
+    def _on_tr_input_device_changed(self, device) -> None:
+        """Persist the chosen microphone (None = system default)."""
+        cfg = self._tr_cfg()
+        if "audio" not in cfg or not isinstance(cfg["audio"], dict):
+            cfg["audio"] = {}
+        cfg["audio"]["input_device"] = device
+        self.app.config.save()
+
+    # ------------------------------------------------------------------ transcription
+
+    def _on_transcription_ui_state(self, state: str, message: str) -> None:
+        """Route transcriber UI state changes to overlay + tray."""
+        # Map transcriber states to overlay states.
+        if state == "loading":
+            self.transcription_overlay.set_state(STATE_LOADING)
+            self.tray.set_loading_model()
+        elif state == "recording":
+            self.transcription_overlay.set_state(STATE_RECORDING)
+            self.tray.set_recording()
+        elif state == "transcribing":
+            self.transcription_overlay.set_state(STATE_TRANSCRIBING)
+            self.tray.set_transcribing("0.0")
+        elif state == "done":
+            self.transcription_overlay.set_state(OV_READY)
+            self.tray.set_success("")
+            QTimer.singleShot(2000, self.tray.set_default)
+        elif state == "error":
+            self.transcription_overlay.set_state(OV_ERROR)
+            self.tray.set_error()
+            QTimer.singleShot(3000, self.tray.set_default)
+        else:  # "idle" or anything else
+            self.transcription_overlay.set_state(STATE_HIDDEN)
+            self.tray.set_default()
+
+    def _on_transcription_model_state(self, state: str) -> None:
+        """Forward Whisper model state changes to settings tab."""
+        if hasattr(self, "settings_tab"):
+            self.settings_tab.update_transcription_state(state)
+
+    def _on_transcription_info(self, info: dict) -> None:
+        """Forward Whisper runtime info (device, compute_type) to settings tab."""
+        if hasattr(self, "settings_tab"):
+            self.settings_tab.update_transcription_info(info)
+
+    def _on_transcription_time(self, elapsed: str) -> None:
+        """Update tray seconds counter while transcribing."""
+        self.tray.set_transcribing(elapsed)

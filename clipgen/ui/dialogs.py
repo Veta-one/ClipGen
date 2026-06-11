@@ -26,7 +26,20 @@ class CustomMessageBox(QDialog):
     - Dark titlebar
     - Yes button turns RED on hover (destructive action)
     - No button turns GREEN on hover (safe/cancel action)
+
+    With ``scrollable=True`` the body is rendered inside a scrollable
+    text browser and the dialog gets a fixed comfortable size, so long
+    content (e.g. release notes) can never push the buttons off-screen.
+
+    ``html_variants`` (used with ``scrollable=True``) is an optional
+    ``{code: html}`` mapping of body variants — e.g. release notes per
+    language. When it holds more than one entry, a small switcher row is
+    shown above the body; ``default_variant`` selects the initial one.
     """
+
+    # Languages name themselves in the switcher — a native name is the
+    # same for every viewer, so these are intentionally not translated.
+    _VARIANT_NATIVE_NAMES = {"en": "English", "ru": "Русский"}
 
     def __init__(
         self,
@@ -34,7 +47,10 @@ class CustomMessageBox(QDialog):
         title: str,
         text: str,
         yes_text: str = "Yes",
-        no_text: str = "No"
+        no_text: str = "No",
+        scrollable: bool = False,
+        html_variants: dict = None,
+        default_variant: str = None
     ):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -49,15 +65,63 @@ class CustomMessageBox(QDialog):
         main_layout.setContentsMargins(20, 15, 20, 15)
         main_layout.setSpacing(15)
 
-        # Message label - simple QLabel with HTML support
-        from PyQt5.QtWidgets import QLabel
-        self.message_label = QLabel()
-        self.message_label.setText(text)
-        self.message_label.setTextFormat(Qt.RichText)
-        self.message_label.setWordWrap(True)
-        self.message_label.setOpenExternalLinks(True)
-        self.message_label.setStyleSheet("color: #FFFFFF; font-size: 13px;")
-        main_layout.addWidget(self.message_label)
+        self.message_label = None
+        self.message_area = None
+        self._html_variants = dict(html_variants or {})
+        self._variant_buttons = {}
+        if scrollable:
+            from .styles import Styles
+            if len(self._html_variants) > 1:
+                main_layout.addLayout(self._build_variant_switcher())
+            self.message_area = QTextBrowser()
+            self.message_area.setHtml(text)
+            self.message_area.setOpenExternalLinks(True)
+            self.message_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.message_area.setStyleSheet(f"""
+                QTextBrowser {{
+                    background-color: #1F1F1F;
+                    color: #FFFFFF;
+                    border: 1px solid #383838;
+                    border-radius: 8px;
+                    padding: 8px;
+                    font-size: 13px;
+                }}
+                QScrollBar:vertical {{
+                    background-color: transparent;
+                    width: 8px;
+                    margin: 0;
+                }}
+                QScrollBar::handle:vertical {{
+                    background-color: {Styles.BORDER};
+                    border-radius: 4px;
+                    min-height: 20px;
+                }}
+                QScrollBar::handle:vertical:hover {{
+                    background-color: {Styles.BUTTON_HOVER};
+                }}
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                    height: 0;
+                }}
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                    background-color: transparent;
+                }}
+            """)
+            main_layout.addWidget(self.message_area, 1)
+            if self._html_variants:
+                initial = (default_variant
+                           if default_variant in self._html_variants
+                           else next(iter(self._html_variants)))
+                self._select_variant(initial)
+        else:
+            # Message label - simple QLabel with HTML support
+            from PyQt5.QtWidgets import QLabel
+            self.message_label = QLabel()
+            self.message_label.setText(text)
+            self.message_label.setTextFormat(Qt.RichText)
+            self.message_label.setWordWrap(True)
+            self.message_label.setOpenExternalLinks(True)
+            self.message_label.setStyleSheet("color: #FFFFFF; font-size: 13px;")
+            main_layout.addWidget(self.message_label)
 
         # Buttons layout
         button_layout = QHBoxLayout()
@@ -110,7 +174,63 @@ class CustomMessageBox(QDialog):
         """)
 
         # Adjust size to content
-        self.adjustSize()
+        if scrollable:
+            self._apply_scrollable_size()
+        else:
+            self.adjustSize()
+
+    def _build_variant_switcher(self) -> QHBoxLayout:
+        """Small pill buttons that swap the body between content variants."""
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.addStretch(1)
+        for code in sorted(self._html_variants):
+            button = QPushButton(
+                self._VARIANT_NATIVE_NAMES.get(code, code.upper())
+            )
+            button.setCheckable(True)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setStyleSheet("""
+                QPushButton {
+                    background-color: #2A2A2A;
+                    color: #AAAAAA;
+                    border: 1px solid #383838;
+                    border-radius: 6px;
+                    padding: 4px 14px;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    color: #FFFFFF;
+                }
+                QPushButton:checked {
+                    background-color: #3A3A3A;
+                    color: #FFFFFF;
+                    border-color: #555555;
+                }
+            """)
+            button.clicked.connect(lambda _checked, c=code: self._select_variant(c))
+            self._variant_buttons[code] = button
+            row.addWidget(button)
+        return row
+
+    def _select_variant(self, code: str) -> None:
+        """Show one content variant and sync the switcher button states."""
+        if code not in self._html_variants or self.message_area is None:
+            return
+        for variant_code, button in self._variant_buttons.items():
+            button.setChecked(variant_code == code)
+        self.message_area.setHtml(self._html_variants[code])
+
+    def _apply_scrollable_size(self) -> None:
+        """Fixed comfortable size, capped to the available screen area."""
+        from PyQt5.QtWidgets import QApplication
+        width, height = 560, 640
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            width = min(width, max(360, available.width() - 80))
+            height = min(height, max(320, available.height() - 120))
+        self.resize(width, height)
 
     def showEvent(self, event):
         """Ensure dark titlebar on show."""

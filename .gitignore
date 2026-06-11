@@ -5,6 +5,7 @@ build/
 dist/
 
 *.spec
+!ClipGen.spec
 startup_error.txt
 error_log.txt
 
@@ -26,6 +27,16 @@ TODO.md
 clipgen/todo.txt
 clipgen/Old_post.txt
 clipgen/POST_*.md
+FULL_RELEASE_AUDIT.md
+TRANSCRIPTION_AUDIT.md
+
+# Build/runtime artifacts
+build.log
+fault_log.txt
+transcription_diagnostics.txt
+settings.json.corrupt.*.bak
+Models/
+release/
 
 # Claude Code
 .claude/

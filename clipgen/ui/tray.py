@@ -20,6 +20,10 @@ class TrayIconManager:
     COLOR_ERROR = "#F33100"    # Original red
     COLOR_UPDATE = "#007AFF"   # iOS blue
     COLOR_WARNING = "#F33100"
+    # Voice transcription icon colors
+    COLOR_RECORDING = "#DC3545"   # red icon during voice recording
+    COLOR_TRANSCRIBING = "#FFC107"  # yellow icon while Whisper is processing
+    COLOR_LOADING = "#5085D0"     # blue icon while model is loading
 
     def __init__(self, parent, lang: dict):
         """Initialize tray icon manager.
@@ -48,7 +52,12 @@ class TrayIconManager:
             # Fallback to dynamic icon
             self.default_icon = self._create_dynamic_icon("#4A90D9", "C")
         self.tray_icon.setIcon(self.default_icon)
-        self.tray_icon.setToolTip("ClipGen")
+        self.tray_icon.setToolTip(
+            self.lang.get("tray", {}).get("tooltip", "ClipGen")
+        )
+
+    def _tooltip(self, key: str, fallback: str) -> str:
+        return self.lang.get("tray", {}).get(key, fallback)
 
     def _setup_menu(self) -> None:
         """Set up the tray context menu."""
@@ -149,6 +158,34 @@ class TrayIconManager:
         painter.end()
         return QIcon(pixmap)
 
+    def _create_dot_icon(self, bg_color: str, dot_color: str = "#FFFFFF") -> QIcon:
+        """Create a rounded square icon with a centered white dot.
+
+        Used for the recording-state tray icon (red square + white dot).
+        """
+        size = 64
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        painter.setBrush(QColor(bg_color))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(0, 0, size, size, 12, 12)
+
+        painter.setBrush(QColor(dot_color))
+        dot_size = size // 3
+        painter.drawEllipse(
+            (size - dot_size) // 2,
+            (size - dot_size) // 2,
+            dot_size,
+            dot_size,
+        )
+
+        painter.end()
+        return QIcon(pixmap)
+
     def set_default(self) -> None:
         """Set default icon."""
         self.tray_icon.setIcon(self.default_icon)
@@ -174,6 +211,24 @@ class TrayIconManager:
         icon = self._create_dynamic_icon(self.COLOR_UPDATE, "")
         self.tray_icon.setIcon(icon)
 
+    def set_recording(self) -> None:
+        """Voice transcription: recording in progress (red icon, white dot)."""
+        icon = self._create_dot_icon(self.COLOR_RECORDING, "#FFFFFF")
+        self.tray_icon.setIcon(icon)
+        self.tray_icon.setToolTip(self._tooltip("recording", "ClipGen - Recording"))
+
+    def set_transcribing(self, time_str: str = "") -> None:
+        """Voice transcription: Whisper inference running (yellow icon)."""
+        icon = self._create_dynamic_icon(self.COLOR_TRANSCRIBING, time_str, "#1e1e1e")
+        self.tray_icon.setIcon(icon)
+        self.tray_icon.setToolTip(self._tooltip("transcribing", "ClipGen - Transcribing"))
+
+    def set_loading_model(self) -> None:
+        """Voice transcription: Whisper model loading (blue icon)."""
+        icon = self._create_dynamic_icon(self.COLOR_LOADING, "")
+        self.tray_icon.setIcon(icon)
+        self.tray_icon.setToolTip(self._tooltip("loading_model", "ClipGen - Loading model"))
+
     def flash_warning(self) -> None:
         """Flash warning - blink red twice then return to yellow with time."""
         # Get current time from parent window
@@ -197,3 +252,4 @@ class TrayIconManager:
         tray_lang = lang.get("tray", {})
         self.show_hide_action.setText(tray_lang.get("show_hide", "Show/Hide"))
         self.quit_action.setText(tray_lang.get("quit", "Quit"))
+        self.tray_icon.setToolTip(tray_lang.get("tooltip", "ClipGen"))

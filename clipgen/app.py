@@ -7,7 +7,7 @@ import datetime
 import random
 import threading
 import logging
-from queue import Queue
+from queue import Queue, Empty
 
 from PyQt5.QtWidgets import QApplication
 
@@ -17,6 +17,7 @@ from .utils.i18n import I18nManager
 from .utils.proxy import apply_proxy
 from .utils.autostart import is_autostart_enabled
 from .utils.clipboard import ClipboardHandler
+from .utils.process_guard import sweep_orphaned_helpers_async
 from .api.gemini import GeminiProvider
 from .api.openai_compat import OpenAIProvider
 from .api.processor import TextProcessor
@@ -82,6 +83,13 @@ class ClipGenApp:
             lang=self.i18n.lang
         )
 
+        # Voice transcription components are lazy-initialized — created only
+        # when the user enables transcription (or when a transcription hotkey
+        # actually fires). They depend on faster-whisper / sounddevice which
+        # may not be installed yet.
+        self.model_manager = None
+        self.transcriber = None
+
         # Apply UI scaling BEFORE creating QApplication
         scale = self.config.config.get("ui_scale", 1.0)
         if scale != 1.0:
@@ -96,11 +104,18 @@ class ClipGenApp:
         # Connect processor callbacks to window signals
         self._connect_processor_callbacks()
 
+        # Build transcription pipeline if user enabled it.
+        self._maybe_init_transcription()
+
         # Start hotkey listener
         self.hotkey_listener.start()
 
         # Start queue worker
         self._start_queue_worker()
+
+        # Kill transcription helper processes orphaned by a previous run
+        # (e.g. after a crash) so model weights don't pile up in memory.
+        sweep_orphaned_helpers_async()
 
         # Log startup
         logger.info(f"ClipGen v{__version__} started")
@@ -111,8 +126,23 @@ class ClipGenApp:
         # Refresh UI
         self.window.refresh_all_signal.emit()
 
-        # Load welcome message asynchronously
-        threading.Thread(target=self._load_welcome_message, daemon=True).start()
+        # Welcome message: only fire when transcription preload is OFF.
+        # When preload is ON, parallel httpx/Gemini network IO during
+        # CUDA model init has been observed to coincide with native
+        # access violations in CTranslate2. Skipping welcome on those
+        # launches keeps the startup path clean for diagnosing the crash.
+        tr_cfg = self.config.config.get("transcription", {})
+        if not tr_cfg.get("preload_on_start", False):
+            threading.Thread(
+                target=self._load_welcome_message_when_idle,
+                daemon=True,
+            ).start()
+        else:
+            # Just emit a one-line greeting so the log isn't empty.
+            self.window.log_signal.emit(
+                self.i18n.lang.get("logs", {}).get("app_started", "ClipGen started"),
+                ACCENT_BLUE,
+            )
 
     def _connect_processor_callbacks(self) -> None:
         """Connect processor callbacks to window signals."""
@@ -124,18 +154,38 @@ class ClipGenApp:
         self.processor.on_explanation = lambda t, c: self.window.show_explanation_signal.emit(t, c)
 
     def _start_queue_worker(self) -> None:
-        """Start the hotkey queue worker thread."""
+        """Start the hotkey queue worker thread.
+
+        Routes events to either the AI text processor or the voice
+        transcriber depending on the hotkey ``type``.
+        """
         def worker():
             while True:
                 try:
                     event = self.hotkey_queue.get(timeout=1.0)
-                    if event is None:
-                        break
+                except Empty:
+                    continue
+                if event is None:
+                    break
 
+                try:
+                    kind = event.get("kind", "text_action")
+
+                    if kind == "transcription_start":
+                        if not self._ensure_transcription_ready():
+                            continue
+                        self.transcriber.on_press(event.get("hotkey") or {})
+                        continue
+
+                    if kind == "transcription_stop":
+                        if self.transcriber is None:
+                            continue
+                        self.transcriber.on_release(event.get("hotkey") or {})
+                        continue
+
+                    # Default: AI text action
                     action = event.get("action", "")
                     prompt = event.get("prompt", "")
-
-                    # Process in a new thread
                     threading.Thread(
                         target=self.processor.handle_hotkey,
                         args=(action, prompt),
@@ -143,10 +193,167 @@ class ClipGenApp:
                     ).start()
 
                 except Exception:
+                    logger.exception("Hotkey queue worker failed to dispatch event")
                     continue
 
         self.queue_worker_thread = threading.Thread(target=worker, daemon=True)
         self.queue_worker_thread.start()
+
+    # ------------------------------------------------------------------ transcription
+
+    def _ensure_transcription_ready(self) -> bool:
+        """Ensure transcriber/model_manager exist before dispatching events.
+
+        Returns True if available, False and logs an error otherwise.
+        """
+        tr_cfg = self.config.config.get("transcription", {})
+        if not tr_cfg.get("enabled", False):
+            self.window.log_signal.emit(
+                self.i18n.lang.get("logs", {}).get(
+                    "transcription_disabled",
+                    "Voice transcription is disabled in settings"
+                ),
+                ERROR_RED,
+            )
+            return False
+
+        if self.transcriber is None:
+            ok = self._maybe_init_transcription(force=True)
+            if not ok:
+                return False
+
+        return self.transcriber is not None
+
+    def _maybe_init_transcription(self, force: bool = False) -> bool:
+        """Lazily build the configured ASR engine and the Transcriber.
+
+        Imports the heavyweight ML modules only when this is called and
+        only for the engine the user actually picked. Returns True when
+        the components were created (or already existed).
+        """
+        if self.transcriber is not None:
+            return True
+
+        tr_cfg = self.config.config.get("transcription", {})
+        if not force and not tr_cfg.get("enabled", False):
+            return False
+
+        try:
+            from .transcription.deps import check_dependencies_for_engine
+            from .transcription.engine_factory import create_asr_manager
+            from .transcription.transcriber import Transcriber
+        except Exception as exc:
+            logger.exception("Failed to import transcription module")
+            self.window.log_signal.emit(
+                f"Transcription init failed: {exc}", ERROR_RED
+            )
+            return False
+
+        engine = (tr_cfg.get("engine") or "whisper").lower()
+
+        # Check the lightweight required deps first; CUDA libs are optional.
+        missing = check_dependencies_for_engine(engine, include_cuda=False)
+        if missing:
+            logs = self.i18n.lang.get("logs", {})
+            # Prefer an engine-specific message so the user knows which deps
+            # to install and isn't told "Whisper" when they picked Parakeet.
+            template = logs.get(
+                f"transcription_deps_missing_{engine}",
+                logs.get(
+                    "transcription_deps_missing",
+                    "Transcription dependencies not installed. Open Settings to install."
+                ),
+            )
+            self.window.log_signal.emit(
+                template.format(packages=", ".join(missing)) if "{packages}" in template else template,
+                ERROR_RED,
+            )
+            return False
+
+        self.model_manager = create_asr_manager(
+            self.config.config, self.i18n.lang
+        )
+        self.transcriber = Transcriber(
+            self.config.config,
+            self.i18n.lang,
+            self.model_manager,
+            self.clipboard,
+        )
+
+        # Wire signals through to the main window.
+        self.model_manager.log_signal.connect(self.window.log_signal)
+        self.model_manager.state_changed.connect(
+            self.window.transcription_state_signal
+        )
+        self.model_manager.info_signal.connect(
+            self.window.transcription_info_signal
+        )
+
+        self.transcriber.log_signal.connect(self.window.log_signal)
+        self.transcriber.ui_state_changed.connect(
+            self.window.transcription_ui_signal
+        )
+        self.transcriber.transcribing_time_signal.connect(
+            self.window.transcription_time_signal
+        )
+
+        # Optional preload at startup.
+        # Defer via QTimer so Qt has fully finished its own DLL loading
+        # before we touch CUDA — kicking off heavy ML init too early in
+        # the frozen .exe boot sequence has been observed to crash with a
+        # 0xC0000005 access violation.
+        if tr_cfg.get("preload_on_start", False):
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(3000, self.model_manager.load_async)
+
+        return True
+
+    def _reinit_transcription(self, new_engine: str) -> bool:
+        """Hot-switch the ASR engine: tear down the current one and re-init.
+
+        Skipped while a recording is active so we don't pull the model out
+        from under an in-flight transcription. Returns True on success.
+        """
+        new_engine = (new_engine or "whisper").lower()
+        # Refuse the swap mid-recording — UI must wait until release.
+        if self.transcriber is not None and getattr(self.transcriber, "_active", False):
+            self.window.log_signal.emit(
+                self.i18n.lang.get("logs", {}).get(
+                    "transcription_switch_busy",
+                    "Cannot switch engine while a recording is in progress."
+                ),
+                ERROR_RED,
+            )
+            return False
+
+        # Remember whether transcription was enabled so we know whether to
+        # rebuild after the engine change.
+        tr_cfg = self.config.config.setdefault("transcription", {})
+        tr_cfg["engine"] = new_engine
+        try:
+            self.config.save()
+        except Exception:
+            logger.exception("Failed to save engine choice")
+
+        # Tear down the previous engine + transcriber so the next call to
+        # ``_maybe_init_transcription`` starts from a clean slate.
+        if self.transcriber is not None:
+            try:
+                self.transcriber.shutdown()
+            except Exception:
+                logger.exception("Transcriber shutdown failed during reinit")
+        if self.model_manager is not None:
+            try:
+                self.model_manager.shutdown(release_model=True)
+            except Exception:
+                logger.exception("Model manager shutdown failed during reinit")
+        self.transcriber = None
+        self.model_manager = None
+
+        if not tr_cfg.get("enabled", False):
+            return True  # disabled — nothing to spin up
+
+        return self._maybe_init_transcription(force=True)
 
     def run(self) -> int:
         """Run the application.
@@ -156,6 +363,28 @@ class ClipGenApp:
         """
         self.window.show()
         return self.qt_app.exec_()
+
+    def _load_welcome_message_when_idle(self) -> None:
+        """Wait until any in-flight model download/load is done, then post
+        the AI welcome message. Keeps the log readable on first launch when
+        Whisper weights are downloading.
+        """
+        # If transcription is enabled and the model manager is busy
+        # downloading or loading, hold off — otherwise the multi-paragraph
+        # welcome card visually buries the download progress.
+        try:
+            for _ in range(120):  # up to 2 minutes
+                mm = getattr(self, "model_manager", None)
+                if mm is None:
+                    break
+                state = mm.get_state()
+                if state in ("downloading", "loading"):
+                    time.sleep(1.0)
+                    continue
+                break
+        except Exception:
+            pass
+        self._load_welcome_message()
 
     def _load_welcome_message(self) -> None:
         """Load welcome message asynchronously."""
@@ -296,6 +525,12 @@ class ClipGenApp:
                         else:
                             new_key = self.openai.switch_to_next_key()
                         if new_key:
+                            # Persist the rotation so a restart doesn't fall
+                            # back to the exhausted key.
+                            try:
+                                self.config.save()
+                            except Exception:
+                                logger.exception("Failed to persist API key rotation")
                             continue
 
                 # Last attempt - raise error
@@ -313,6 +548,18 @@ class ClipGenApp:
 
         # Stop queue worker
         self.hotkey_queue.put(None)
+
+        # Voice transcription cleanup (no-op if it was never initialized).
+        if self.transcriber is not None:
+            try:
+                self.transcriber.shutdown()
+            except Exception:
+                logger.exception("Transcriber shutdown failed")
+        if self.model_manager is not None:
+            try:
+                self.model_manager.shutdown()
+            except Exception:
+                logger.exception("Model manager shutdown failed")
 
         # Save settings
         self.config.save()

@@ -54,11 +54,15 @@ class HotkeyManager:
             "name": name,
             "prompt": prompt,
             "log_color": log_color,
+            "type": "text_action",
             "use_custom_model": False,
             "custom_provider": None,
             "custom_model": None,
             "learning_mode": False,
-            "learning_prompt": ""
+            "learning_prompt": "",
+            "transcription_language": "auto",
+            "transcription_initial_prompt": "",
+            "transcription_strip_trailing_period": False
         }
 
         self.config["hotkeys"].append(new_hotkey)
@@ -276,5 +280,43 @@ class HotkeyManager:
             return False
 
         hotkeys[index]["learning_prompt"] = prompt
+        self.save()
+        return True
+
+    def update_type(self, index: int, hotkey_type: str) -> bool:
+        """Update hotkey behavior type ("text_action" or "transcription")."""
+        hotkeys = self.hotkeys
+        if not (0 <= index < len(hotkeys)):
+            return False
+        if hotkey_type not in ("text_action", "transcription"):
+            return False
+        hotkeys[index]["type"] = hotkey_type
+        self.save()
+        return True
+
+    def update_transcription_language(self, index: int, language: str) -> bool:
+        """Update per-hotkey override for transcription language."""
+        hotkeys = self.hotkeys
+        if not (0 <= index < len(hotkeys)):
+            return False
+        hotkeys[index]["transcription_language"] = language
+        self.save()
+        return True
+
+    def update_transcription_initial_prompt(self, index: int, prompt: str) -> bool:
+        """Update per-hotkey override for transcription initial prompt."""
+        hotkeys = self.hotkeys
+        if not (0 <= index < len(hotkeys)):
+            return False
+        hotkeys[index]["transcription_initial_prompt"] = prompt
+        self.save()
+        return True
+
+    def update_transcription_strip_trailing_period(self, index: int, enabled: bool) -> bool:
+        """Update per-hotkey final period post-processing."""
+        hotkeys = self.hotkeys
+        if not (0 <= index < len(hotkeys)):
+            return False
+        hotkeys[index]["transcription_strip_trailing_period"] = bool(enabled)
         self.save()
         return True

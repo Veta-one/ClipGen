@@ -1,8 +1,24 @@
 PyQt5==5.15.10
 pyperclip==1.8.2
-Pillow==10.3.0
+Pillow==11.0.0
 google-generativeai==0.8.5
 pynput==1.7.6
-pywin32==306
+pywin32==310
 PySocks==1.7.1
-openai
+openai==1.109.1
+
+# Optional: voice transcription (Whisper). Install on demand from the
+# in-app "Install / Download" button. Not bundled with the .exe to keep
+# the binary small for users who only need AI text processing.
+#   faster-whisper==1.2.1
+#   ctranslate2==4.7.1
+#   sounddevice==0.5.5
+#   numpy==2.4.4
+#   huggingface_hub==0.36.2
+#   tqdm==4.67.1
+#   nvidia-cuda-runtime-cu12==12.9.79 ; sys_platform == "win32"
+#   nvidia-cublas-cu12==12.9.2.10 ; sys_platform == "win32"
+#   nvidia-cufft-cu12==11.4.1.4 ; sys_platform == "win32"
+#   nvidia-cudnn-cu12==9.22.0.52  ; sys_platform == "win32"
+#   nvidia-cuda-nvrtc-cu12==12.9.86 ; sys_platform == "win32"
+#   nvidia-nvjitlink-cu12==12.9.86 ; sys_platform == "win32"

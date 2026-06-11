@@ -3,13 +3,18 @@
 import time
 import base64
 import io
+import logging
 import threading
-from typing import Optional, Tuple, Union
+from typing import Callable, Optional, Tuple, TypeVar
 
 import pyperclip
 from PIL import ImageGrab
 import win32api
 import win32con
+
+logger = logging.getLogger('ClipGen')
+
+T = TypeVar("T")
 
 
 class ClipboardHandler:
@@ -32,6 +37,19 @@ class ClipboardHandler:
             self.is_pasting = value
         if self._on_pasting_change:
             self._on_pasting_change(value)
+
+    def _retry_clipboard(self, action: Callable[[], T], fallback: T, label: str) -> T:
+        """Run a clipboard operation with short retries for transient locks."""
+        last_error = None
+        for attempt in range(3):
+            try:
+                return action()
+            except Exception as exc:
+                last_error = exc
+                if attempt < 2:
+                    time.sleep(0.05 * (attempt + 1))
+        logger.warning("Clipboard %s failed: %s", label, last_error)
+        return fallback
 
     def simulate_copy(self) -> None:
         """Simulate Ctrl+C keypress."""
@@ -63,18 +81,21 @@ class ClipboardHandler:
 
     def get_text(self) -> str:
         """Get text from clipboard."""
-        try:
-            return pyperclip.paste()
-        except Exception:
-            return ""
+        return self._retry_clipboard(pyperclip.paste, "", "read text")
 
     def set_text(self, text: str) -> None:
         """Set text to clipboard."""
-        pyperclip.copy(text)
+        def copy_text() -> bool:
+            pyperclip.copy(text)
+            return True
+
+        ok = self._retry_clipboard(copy_text, False, "write text")
+        if not ok:
+            raise RuntimeError("Failed to write text to clipboard")
 
     def get_image_as_base64(self) -> Optional[str]:
         """Capture image from clipboard and return as base64."""
-        try:
+        def grab_image() -> Optional[str]:
             img = ImageGrab.grabclipboard()
             if img is None:
                 return None
@@ -82,16 +103,16 @@ class ClipboardHandler:
             buffer = io.BytesIO()
             img.save(buffer, format="PNG")
             return base64.b64encode(buffer.getvalue()).decode("utf-8")
-        except Exception:
-            return None
+
+        return self._retry_clipboard(grab_image, None, "read image")
 
     def has_image(self) -> bool:
         """Check if clipboard contains an image."""
-        try:
+        def grab_has_image() -> bool:
             img = ImageGrab.grabclipboard()
             return img is not None
-        except Exception:
-            return False
+
+        return self._retry_clipboard(grab_has_image, False, "check image")
 
     def get_content(self) -> Tuple[str, bool]:
         """Get clipboard content.

@@ -219,10 +219,25 @@ class TextProcessor:
                         if self.config.get("auto_switch_api_keys", False):
                             new_key_name = provider.switch_to_next_key()
                             if new_key_name:
+                                # Persist immediately: if every key ends up
+                                # exhausted the success-path save() never
+                                # runs and the rotation would be lost on
+                                # restart.
+                                try:
+                                    self.save()
+                                except Exception:
+                                    logger.exception("Failed to persist API key rotation")
                                 if self.on_key_switch:
                                     self.on_key_switch(new_key_name)
                                 if self.on_log:
-                                    self.on_log(f"Switched to {new_key_name}", "#FF5555")
+                                    template = self.lang.get("logs", {}).get(
+                                        "key_switched",
+                                        "Quota exceeded. Switched to key: {key_name}. Retrying..."
+                                    )
+                                    self.on_log(
+                                        template.format(key_name=new_key_name),
+                                        "#FF5555",
+                                    )
                                 continue
 
                     last_error = result
@@ -262,7 +277,8 @@ class TextProcessor:
                 final_msg = err_dict.get("gemini_404_model_not_found", "Error: Model not found").format(model_name=model_name)
 
             if self.on_log:
-                self.on_log(f"Error: {final_msg}", "#FF5555")
+                template = self.lang.get("logs", {}).get("error", "Error: {error}")
+                self.on_log(template.format(error=final_msg), "#FF5555")
 
             logger.error(f"{final_msg}")
             return ""

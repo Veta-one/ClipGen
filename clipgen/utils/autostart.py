@@ -26,8 +26,8 @@ def is_autostart_enabled() -> bool:
             return False
         finally:
             winreg.CloseKey(key)
-    except Exception as e:
-        print(f"Autostart check error: {e}")
+    except Exception:
+        logger.exception("Autostart check error")
         return False
 
 
@@ -37,7 +37,7 @@ def set_autostart(enabled: bool) -> bool:
     Returns True if operation was successful.
     """
     if not getattr(sys, 'frozen', False):
-        print("Autostart is disabled in development mode (.py)")
+        logger.info("Autostart is disabled in development mode (.py)")
         return False
 
     exe_path = sys.executable

@@ -3,7 +3,7 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QTextEdit, QFrame, QScrollArea, QKeySequenceEdit,
-    QColorDialog
+    QColorDialog, QCheckBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor
@@ -40,6 +40,10 @@ class HotkeyCard(QFrame):
     custom_model_changed = pyqtSignal(int, str)
     learning_mode_changed = pyqtSignal(int, bool)
     learning_prompt_changed = pyqtSignal(int, str)
+    type_changed = pyqtSignal(int, str)
+    transcription_language_changed = pyqtSignal(int, str)
+    transcription_initial_prompt_changed = pyqtSignal(int, str)
+    transcription_strip_trailing_period_changed = pyqtSignal(int, bool)
 
     def __init__(self, index: int, hotkey: dict, lang: dict, config: dict, parent=None):
         super().__init__(parent)
@@ -148,9 +152,19 @@ class HotkeyCard(QFrame):
         name_layout.addWidget(self.name_input)
         layout.addLayout(name_layout)
 
+        # Action type selector (text_action vs transcription)
+        self._setup_type_section(layout)
+
+        # ---------- text_action body (prompt + custom model + learning mode) ----------
+        self.text_action_container = QWidget()
+        self.text_action_container.setStyleSheet("background-color: transparent;")
+        text_layout = QVBoxLayout(self.text_action_container)
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(8)
+
         # Prompt field with label and auto-height
         prompt_label = QLabel(self.lang.get("settings", {}).get("prompt_label", "Prompt:"))
-        layout.addWidget(prompt_label)
+        text_layout.addWidget(prompt_label)
 
         self.prompt_input = FocusExpandingTextEdit(self.hotkey.get("prompt", ""))
         self.prompt_input.setStyleSheet("""
@@ -175,13 +189,21 @@ class HotkeyCard(QFrame):
         # Initial height adjustment
         QTimer.singleShot(0, adjust_height)
 
-        layout.addWidget(self.prompt_input)
+        text_layout.addWidget(self.prompt_input)
 
-        # Custom model section
-        self._setup_custom_model_section(layout)
+        # Custom model section (inside text_action body)
+        self._setup_custom_model_section(text_layout)
 
-        # Learning mode section
-        self._setup_learning_mode_section(layout)
+        # Learning mode section (inside text_action body)
+        self._setup_learning_mode_section(text_layout)
+
+        layout.addWidget(self.text_action_container)
+
+        # ---------- transcription body (per-hotkey overrides) ----------
+        self._setup_transcription_section(layout)
+
+        # Apply initial visibility based on hotkey type
+        self._apply_type_visibility()
 
     def _update_color_button(self, color: str) -> None:
         """Update color button appearance."""
@@ -463,6 +485,191 @@ class HotkeyCard(QFrame):
         else:
             self.learning_prompt_changed.emit(self.index, current_text)
 
+    # ----------------------------------------------------------------- type/transcription
+
+    TYPE_LANGUAGES = [
+        ("auto", "language_auto"),
+        ("ru", "language_ru"),
+        ("en", "language_en"),
+        ("de", "language_de"),
+        ("es", "language_es"),
+        ("fr", "language_fr"),
+        ("it", "language_it"),
+        ("pt", "language_pt"),
+        ("pl", "language_pl"),
+        ("uk", "language_uk"),
+    ]
+
+    def _setup_type_section(self, layout) -> None:
+        """Build the action-type radio selector."""
+        settings_lang = self.lang.get("settings", {})
+        tooltips = self.lang.get("tooltips", {})
+
+        type_row = QHBoxLayout()
+        type_row.setSpacing(8)
+
+        type_label = QLabel(settings_lang.get("hotkey_type_label", "Action type:"))
+        type_row.addWidget(type_label)
+
+        from PyQt5.QtWidgets import QRadioButton, QButtonGroup
+
+        self.type_text_radio = QRadioButton(
+            settings_lang.get("hotkey_type_text_action", "AI text processing")
+        )
+        self.type_voice_radio = QRadioButton(
+            settings_lang.get("hotkey_type_transcription", "Voice transcription")
+        )
+        self.type_text_radio.setToolTip(tooltips.get("hotkey_type_selector", ""))
+        self.type_voice_radio.setToolTip(tooltips.get("hotkey_type_selector", ""))
+
+        radio_style = """
+            QRadioButton { spacing: 6px; color: #FFFFFF; }
+            QRadioButton::indicator { width: 14px; height: 14px; border-radius: 7px; }
+            QRadioButton::indicator:unchecked { background-color: #353535; }
+            QRadioButton::indicator:checked {
+                background-color: qradialgradient(
+                    cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                    stop:0 #FFFFFF, stop:0.4 #FFFFFF, stop:0.5 #5085D0, stop:1 #5085D0
+                );
+            }
+        """
+        self.type_text_radio.setStyleSheet(radio_style)
+        self.type_voice_radio.setStyleSheet(radio_style)
+
+        current_type = self.hotkey.get("type", "text_action")
+        if current_type == "transcription":
+            self.type_voice_radio.setChecked(True)
+        else:
+            self.type_text_radio.setChecked(True)
+
+        self._type_group = QButtonGroup(self)
+        self._type_group.addButton(self.type_text_radio)
+        self._type_group.addButton(self.type_voice_radio)
+
+        self.type_text_radio.toggled.connect(self._on_type_toggled)
+        self.type_voice_radio.toggled.connect(self._on_type_toggled)
+
+        type_row.addWidget(self.type_text_radio)
+        type_row.addWidget(self.type_voice_radio)
+        type_row.addStretch()
+        layout.addLayout(type_row)
+
+    def _setup_transcription_section(self, layout) -> None:
+        """Per-hotkey transcription overrides (language, initial prompt)."""
+        settings_lang = self.lang.get("settings", {})
+        tr_lang = self.lang.get("transcription", {})
+        tooltips = self.lang.get("tooltips", {})
+
+        self.transcription_container = QWidget()
+        self.transcription_container.setStyleSheet("background-color: transparent;")
+        tr_layout = QVBoxLayout(self.transcription_container)
+        tr_layout.setContentsMargins(0, 0, 0, 0)
+        tr_layout.setSpacing(8)
+
+        # Language override row
+        lang_row = QHBoxLayout()
+        lang_row.setSpacing(8)
+        lang_label = QLabel(settings_lang.get("transcription_language_label", "Language:"))
+        lang_label.setMinimumWidth(150)
+        lang_row.addWidget(lang_label)
+
+        self.tr_language_combo = StyledComboBox()
+        self.tr_language_combo.setMinimumWidth(220)
+        for value, key in self.TYPE_LANGUAGES:
+            self.tr_language_combo.addItem(tr_lang.get(key, value), value)
+
+        current_lang = self.hotkey.get("transcription_language", "auto")
+        for i in range(self.tr_language_combo.count()):
+            if self.tr_language_combo.itemData(i) == current_lang:
+                self.tr_language_combo.setCurrentIndex(i)
+                break
+        self.tr_language_combo.setToolTip(tooltips.get("transcription_language_select", ""))
+        self.tr_language_combo.currentIndexChanged.connect(
+            lambda _i: self.transcription_language_changed.emit(
+                self.index, self.tr_language_combo.currentData()
+            )
+        )
+        lang_row.addWidget(self.tr_language_combo, 1)
+        tr_layout.addLayout(lang_row)
+
+        # Initial prompt override
+        prompt_label = QLabel(
+            settings_lang.get(
+                "transcription_initial_prompt_label",
+                "Initial prompt (override):"
+            )
+        )
+        tr_layout.addWidget(prompt_label)
+
+        self.tr_initial_prompt_input = FocusExpandingTextEdit(
+            self.hotkey.get("transcription_initial_prompt", "")
+        )
+        self.tr_initial_prompt_input.setStyleSheet("""
+            border-radius: 8px;
+            border: 1px solid #444444;
+            padding: 8px;
+            background-color: #2a2a2a;
+        """)
+        self.tr_initial_prompt_input.setToolTip(
+            tooltips.get("transcription_initial_prompt", "")
+        )
+        self.tr_initial_prompt_input.setPlaceholderText(
+            settings_lang.get("transcription_initial_prompt_placeholder", "")
+        )
+        self.tr_initial_prompt_input.setMinimumHeight(60)
+        self.tr_initial_prompt_input.setMaximumHeight(60)
+        self.tr_initial_prompt_input.textChanged.connect(
+            lambda: self.transcription_initial_prompt_changed.emit(
+                self.index,
+                self.tr_initial_prompt_input.toPlainText()
+            )
+        )
+        tr_layout.addWidget(self.tr_initial_prompt_input)
+
+        self.tr_strip_period_checkbox = QCheckBox(
+            settings_lang.get(
+                "transcription_strip_trailing_period_label",
+                "Remove final period"
+            )
+        )
+        self.tr_strip_period_checkbox.setChecked(
+            bool(self.hotkey.get("transcription_strip_trailing_period", False))
+        )
+        self.tr_strip_period_checkbox.setToolTip(
+            tooltips.get("transcription_strip_trailing_period", "")
+        )
+        self.tr_strip_period_checkbox.setStyleSheet(
+            "QCheckBox { color: #FFFFFF; spacing: 6px; }"
+        )
+        self.tr_strip_period_checkbox.stateChanged.connect(
+            lambda state: self.transcription_strip_trailing_period_changed.emit(
+                self.index,
+                state == Qt.Checked
+            )
+        )
+        tr_layout.addWidget(self.tr_strip_period_checkbox)
+
+        layout.addWidget(self.transcription_container)
+
+    def _apply_type_visibility(self) -> None:
+        """Show/hide bodies based on the current hotkey type."""
+        is_transcription = self.type_voice_radio.isChecked()
+        if hasattr(self, "text_action_container"):
+            self.text_action_container.setVisible(not is_transcription)
+        if hasattr(self, "transcription_container"):
+            self.transcription_container.setVisible(is_transcription)
+
+    def _on_type_toggled(self, checked: bool) -> None:
+        # Both buttons fire toggled; only handle the one that turned on.
+        if not checked:
+            return
+        if self.type_voice_radio.isChecked():
+            new_type = "transcription"
+        else:
+            new_type = "text_action"
+        self._apply_type_visibility()
+        self.type_changed.emit(self.index, new_type)
+
 
 class PromptsTab(QWidget):
     """Tab for managing hotkey prompts.
@@ -481,6 +688,10 @@ class PromptsTab(QWidget):
     custom_model_changed = pyqtSignal(int, str)
     learning_mode_changed = pyqtSignal(int, bool)
     learning_prompt_changed = pyqtSignal(int, str)
+    type_changed = pyqtSignal(int, str)
+    transcription_language_changed = pyqtSignal(int, str)
+    transcription_initial_prompt_changed = pyqtSignal(int, str)
+    transcription_strip_trailing_period_changed = pyqtSignal(int, bool)
 
     def __init__(self, config: dict, lang: dict, parent=None):
         super().__init__(parent)
@@ -599,6 +810,18 @@ class PromptsTab(QWidget):
             )
             card.learning_prompt_changed.connect(
                 lambda idx, val: self.learning_prompt_changed.emit(idx, val)
+            )
+            card.type_changed.connect(
+                lambda idx, val: self.type_changed.emit(idx, val)
+            )
+            card.transcription_language_changed.connect(
+                lambda idx, val: self.transcription_language_changed.emit(idx, val)
+            )
+            card.transcription_initial_prompt_changed.connect(
+                lambda idx, val: self.transcription_initial_prompt_changed.emit(idx, val)
+            )
+            card.transcription_strip_trailing_period_changed.connect(
+                lambda idx, val: self.transcription_strip_trailing_period_changed.emit(idx, val)
             )
             self.cards_layout.addWidget(card)
             self.cards.append(card)

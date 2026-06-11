@@ -6,7 +6,7 @@ import ctypes
 import logging
 
 # Version
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 
 # Windows App ID for taskbar grouping
 APP_ID = 'company.clipgen.app.1.0'
@@ -75,25 +75,77 @@ DEFAULT_CONFIG = {
             "combination": "Ctrl+F1",
             "name": "F1 Text Correction",
             "log_color": "#FFFFFF",
+            "type": "text_action",
             "prompt": "Fix grammar and spelling. Correct any typos, grammatical errors, and punctuation issues in the following text while maintaining its original meaning and style. Only provide the corrected text, nothing else.",
             "use_custom_model": False,
             "custom_provider": None,
             "custom_model": None,
             "learning_mode": False,
-            "learning_prompt": ""
+            "learning_prompt": "",
+            "transcription_language": "auto",
+            "transcription_initial_prompt": "",
+            "transcription_strip_trailing_period": False
         },
         {
             "combination": "Ctrl+F2",
             "name": "F2 Translation",
             "log_color": "#FBB6CE",
+            "type": "text_action",
             "prompt": "Translate to Russian. Provide only the translation, nothing else.",
             "use_custom_model": False,
             "custom_provider": None,
             "custom_model": None,
             "learning_mode": False,
-            "learning_prompt": ""
+            "learning_prompt": "",
+            "transcription_language": "auto",
+            "transcription_initial_prompt": "",
+            "transcription_strip_trailing_period": False
         }
     ],
+    "transcription": {
+        "enabled": False,
+        "engine": "whisper",
+        "default_language": "auto",
+        "preload_on_start": False,
+        "auto_unload_minutes": 5,
+        "filter_hallucinations": True,
+        "hallucination_blacklist": [
+            "Субтитры сделал",
+            "Продолжение следует",
+            "amara.org",
+            "Спасибо за просмотр",
+            "Subtitles by",
+            "Thanks for watching"
+        ],
+        "feedback_sounds": True,
+        "streaming_enabled": False,
+        "streaming_interval": 1.5,
+        "audio": {
+            "sample_rate": 16000,
+            "blocksize": 1024,
+            "latency": "low",
+            "input_device": None,
+            "max_record_seconds": 120
+        },
+        "whisper": {
+            "model": "large-v3",
+            "device": "auto",
+            "compute_type": "float16",
+            "beam_size": 1,
+            "vad_filter": True,
+            "vad_min_duration_seconds": 1.0,
+            "whisper_initial_prompt": "",
+            "postprocess_prompt": "",
+            "model_path_override": "",
+            "isolate_inference_process": True
+        },
+        "parakeet": {
+            "model": "nemo-parakeet-tdt-0.6b-v3",
+            "providers": ["CUDA", "CPU"],
+            "quantization": "",
+            "model_path_override": ""
+        }
+    },
     "default_learning_prompt": """You are a language tutor. Analyze the corrections made to the text.
 
 IGNORE (don't explain):

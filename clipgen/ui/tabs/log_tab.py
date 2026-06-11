@@ -176,13 +176,21 @@ class LogTab(QWidget):
         app_started_msg = logs_lang.get("app_started", "ClipGen started")
         empty_clipboard_msg = errors_lang.get("empty_clipboard", "Clipboard is empty")
 
-        # Check if this is an action header (combination: name - timestamp)
+        # Check if this is an action header. Two formats are supported:
+        #   • AI text actions:    "<combo>: <name> - HH:MM:SS"
+        #   • Voice transcription: "<name> - HH:MM:SS"
         is_action_header = False
         if self.config:
             for hotkey in self.config.get("hotkeys", []):
                 combo = hotkey.get("combination", "")
                 name = hotkey.get("name", "")
+                if not name:
+                    continue
                 if f"{combo}: {name}" in message:
+                    is_action_header = True
+                    break
+                if (hotkey.get("type") == "transcription"
+                        and re.match(rf"^{re.escape(name)} - \d{{2}}:\d{{2}}:\d{{2}}$", message)):
                     is_action_header = True
                     break
 
