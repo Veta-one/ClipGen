@@ -351,6 +351,25 @@ class ParakeetModelManager(BaseASRManager):
             return False
         return not is_parakeet_downloaded()
 
+    @staticmethod
+    def _detect_actual_provider(provider_choice: str, chain: List[str]) -> str:
+        """Return the provider that will actually run inference.
+
+        A GPU provider only works when it exists in the loaded onnxruntime
+        build; otherwise the session falls back to CPU without an error.
+        """
+        gpu_requested = [p for p in chain if p != "CPUExecutionProvider"]
+        if not gpu_requested:
+            return provider_choice
+        try:
+            import onnxruntime  # type: ignore
+            available = set(onnxruntime.get_available_providers())
+        except Exception:
+            return provider_choice
+        if any(p in available for p in gpu_requested):
+            return provider_choice
+        return "CPU"
+
     def get_runtime_info(self) -> Dict[str, Any]:
         return {
             "engine": self.engine_name,
@@ -491,7 +510,14 @@ class ParakeetModelManager(BaseASRManager):
                     self._model = onnx_asr.load_model(PARAKEET_MODEL_ALIAS, **kwargs)
                     self._loaded_signature = (PARAKEET_MODEL_ALIAS, provider_choice,
                                               quant_pref or "default")
-                    self._actual_provider = provider_choice
+                    # onnxruntime does NOT fail when a requested provider is
+                    # unavailable — it warns and silently runs on CPU (e.g.
+                    # when the CPU-only wheel overwrote the GPU build).
+                    # Report the provider that actually serves inference,
+                    # not the one the user picked in Settings.
+                    self._actual_provider = self._detect_actual_provider(
+                        provider_choice, chain
+                    )
                     self._actual_quant = quant_pref or ""
                 self._warmup(snapshot_dir)
                 self._last_load_seconds = time.time() - start
@@ -499,7 +525,14 @@ class ParakeetModelManager(BaseASRManager):
                 self._set_state(STATE_READY)
                 self.info_signal.emit(self.get_runtime_info())
                 self._idle_reset_requested.emit()
-                if provider_choice != providers_pref[0]:
+                self._emit_log(
+                    "transcription_model_loaded_on",
+                    "#888888",
+                    device=self._actual_provider,
+                    seconds=self._last_load_seconds,
+                )
+                if (provider_choice != providers_pref[0]
+                        or self._actual_provider != provider_choice):
                     self._emit_log("transcription_cuda_unavailable", self.INFO_COLOR)
                 return True
             except Exception as exc:

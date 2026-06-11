@@ -311,6 +311,30 @@ def check_dependencies(include_cuda: bool = True) -> List[str]:
     return check_dependencies_for_engine("whisper", include_cuda=include_cuda)
 
 
+def _onnxruntime_gpu_build_intact() -> bool:
+    """True when the installed onnxruntime files still contain the CUDA provider.
+
+    The CPU-only ``onnxruntime`` wheel and ``onnxruntime-gpu`` unpack into
+    the SAME package folder. When the CPU wheel installs last (onnx-asr
+    pulls it in as a dependency), the ``onnxruntime-gpu`` dist-info still
+    reports the right version — but the CUDA provider DLL is gone and
+    inference silently runs on CPU. Checked via the file system only, so
+    no native DLLs get mapped into this process.
+    """
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec("onnxruntime")
+        if spec is None or not spec.submodule_search_locations:
+            return True  # not installed at all — version check handles it
+        root = spec.submodule_search_locations[0]
+        return os.path.isfile(
+            os.path.join(root, "capi", "onnxruntime_providers_cuda.dll")
+        )
+    except Exception:
+        logger.debug("onnxruntime build check failed", exc_info=True)
+        return True
+
+
 def check_dependencies_for_engine(engine: str, include_cuda: bool = True) -> List[str]:
     """Return list of missing import names for a specific ASR engine.
 
@@ -331,6 +355,14 @@ def check_dependencies_for_engine(engine: str, include_cuda: bool = True) -> Lis
     for module_name, pip_spec in targets:
         if not _is_requirement_satisfied(module_name, pip_spec):
             missing.append(module_name)
+
+    # A version match is not enough for onnxruntime-gpu: the CPU wheel may
+    # have overwritten its files. Flag it so "Install / Download" becomes
+    # clickable again and the install path re-asserts the GPU build.
+    if (engine == "parakeet" and sys.platform == "win32"
+            and "onnxruntime" not in missing
+            and not _onnxruntime_gpu_build_intact()):
+        missing.append("onnxruntime")
     return missing
 
 
@@ -407,6 +439,47 @@ def check_runtime_health(include_cuda: bool = True) -> Dict[str, Any]:
     return report
 
 
+def _reassert_onnxruntime_gpu(
+    interp_argv: List[str],
+    user_flag: List[str],
+    log: Callable[[str], None],
+) -> None:
+    """Re-install the GPU onnxruntime build after a Parakeet install.
+
+    ``onnx-asr`` depends on the CPU-only ``onnxruntime`` wheel. Both wheels
+    unpack into the SAME ``onnxruntime/`` folder, so whichever installs
+    last wins — and the CPU build silently replaces the CUDA one. The model
+    then quietly runs ~10x slower on CPU while the UI says "CUDA".
+    """
+    gpu_spec = next(
+        (spec for name, spec in PARAKEET_PACKAGES if name == "onnxruntime"),
+        "onnxruntime-gpu",
+    )
+    commands = [
+        [*interp_argv, "-m", "pip", "uninstall", "-y", "onnxruntime"],
+        [*interp_argv, "-m", "pip", "install", *user_flag,
+         "--force-reinstall", "--no-deps", gpu_spec],
+    ]
+    for cmd in commands:
+        try:
+            completed = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                creationflags=(subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0),
+            )
+            if completed.returncode != 0:
+                logger.warning(
+                    "onnxruntime GPU reassert step failed (%s): %s",
+                    " ".join(cmd[-3:]),
+                    (completed.stderr or completed.stdout or "")[-400:],
+                )
+        except Exception:
+            logger.exception("onnxruntime GPU reassert step crashed")
+    logger.info("Re-asserted GPU onnxruntime build after Parakeet install")
+
+
 def install_dependencies(
     on_log: Optional[Callable[[str], None]] = None,
     on_done: Optional[Callable[[bool, Optional[str]], None]] = None,
@@ -448,9 +521,12 @@ def install_dependencies(
                 # Install into the user's site-packages so it survives across
                 # ClipGen versions (--user). The frozen entry point adds the
                 # user site-packages directory to sys.path at startup.
-                base_cmd = [*python_argv, "-m", "pip", "install", "--user"]
+                interp_argv = list(python_argv)
+                user_flag = ["--user"]
             else:
-                base_cmd = [sys.executable, "-m", "pip", "install"]
+                interp_argv = [sys.executable]
+                user_flag = []
+            base_cmd = [*interp_argv, "-m", "pip", "install", *user_flag]
 
             # ``--progress-bar raw`` (pip 23.2+) emits one ``Progress N of M``
             # line per chunk to stdout — perfect for streaming a humanised
@@ -525,6 +601,10 @@ def install_dependencies(
 
             pump_thread.join(timeout=5)
             if rc == 0:
+                if engine == "parakeet":
+                    # onnx-asr's CPU-only onnxruntime dependency overwrites
+                    # the GPU build — put the CUDA-capable wheel back.
+                    _reassert_onnxruntime_gpu(interp_argv, user_flag, log)
                 done(True)
             else:
                 done(False, f"pip exited with code {rc}")

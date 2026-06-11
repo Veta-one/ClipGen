@@ -10,7 +10,7 @@ ClipGen is a Windows desktop automation utility. It lets users run AI actions th
 • clipboard images can be sent to multimodal models;
 • voice hotkeys can run push-to-talk transcription through faster-whisper.
 
-Current app version: `2.4.0`.
+Current app version: `2.4.1`.
 
 ## Main Capabilities
 

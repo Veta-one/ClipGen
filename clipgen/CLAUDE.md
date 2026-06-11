@@ -4,7 +4,7 @@ This is the package-level developer guide. The root `CLAUDE.md` contains the sam
 
 ## Current State
 
-ClipGen `2.4.0` is a Windows PyQt5 utility for AI actions through global hotkeys:
+ClipGen `2.4.1` is a Windows PyQt5 utility for AI actions through global hotkeys:
 
 • text/image clipboard processing through Gemini or OpenAI-compatible providers;
 • configurable hotkeys and prompts;

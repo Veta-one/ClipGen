@@ -168,6 +168,7 @@
         "transcription_install_done": "Dependencies installed successfully",
         "transcription_install_failed": "Installation failed: {error}",
         "transcription_python_missing": "Python not found. Install Python 3.10+ from python.org (tick \"Add python.exe to PATH\") and click Install / Download again.",
+        "transcription_model_loaded_on": "Model loaded: {device} ({seconds:.1f}s)",
         "transcription_deps_not_visible": "Packages installed, but the app cannot see them. Restart ClipGen. If that does not help, install Python {version} from python.org.",
         "transcription_model_not_downloaded_hotkey": "Model is not downloaded. Open Settings → Voice transcription and click Install / Download.",
         "transcription_filtered": "Filtered as hallucination: \"{text}\"",

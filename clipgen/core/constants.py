@@ -6,7 +6,7 @@ import ctypes
 import logging
 
 # Version
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 # Windows App ID for taskbar grouping
 APP_ID = 'company.clipgen.app.1.0'

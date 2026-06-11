@@ -167,6 +167,7 @@
         "transcription_install_done": "Зависимости установлены успешно",
         "transcription_install_failed": "Ошибка установки: {error}",
         "transcription_python_missing": "Python не найден. Установите Python 3.10+ с python.org (отметьте «Add python.exe to PATH») и нажмите «Установить / Скачать» ещё раз.",
+        "transcription_model_loaded_on": "Модель загружена: {device} ({seconds:.1f} с)",
         "transcription_deps_not_visible": "Пакеты установлены, но программа их не видит. Перезапустите ClipGen. Если не поможет — установите Python {version} с python.org.",
         "transcription_model_not_downloaded_hotkey": "Модель не скачана. Откройте Настройки → «Голосовая транскрибация» и нажмите «Установить / Скачать».",
         "transcription_filtered": "Отфильтровано как галлюцинация: «{text}»",

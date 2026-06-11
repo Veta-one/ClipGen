@@ -553,10 +553,15 @@ class WhisperModelManager(BaseASRManager):
                 duration = time.time() - start
                 self._last_load_seconds = duration
                 self._last_fallback_errors = attempt_errors
-                # Inform the user via the Settings status label rather than a
-                # log line — the load event is one-shot and belongs in the
-                # status pill next to "Model status:", not in the running
-                # transcription log.
+                # One gray line so the user can always see WHERE the model
+                # actually landed (the status pill shows it too, but logs
+                # keep the history).
+                self._emit_log(
+                    "transcription_model_loaded_on",
+                    "#888888",
+                    device=f"{device.upper()} ({compute})",
+                    seconds=duration,
+                )
                 if device == "cpu" and device_pref != "cpu":
                     self._emit_log("transcription_cuda_unavailable",
                                    self.INFO_COLOR)
