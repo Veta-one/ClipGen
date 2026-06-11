@@ -69,6 +69,7 @@ class CustomMessageBox(QDialog):
         self.message_area = None
         self._html_variants = dict(html_variants or {})
         self._variant_buttons = {}
+        self._current_variant = None
         if scrollable:
             from .styles import Styles
             if len(self._html_variants) > 1:
@@ -217,9 +218,25 @@ class CustomMessageBox(QDialog):
         """Show one content variant and sync the switcher button states."""
         if code not in self._html_variants or self.message_area is None:
             return
+        self._current_variant = code
         for variant_code, button in self._variant_buttons.items():
             button.setChecked(variant_code == code)
         self.message_area.setHtml(self._html_variants[code])
+
+    def update_html_variants(self, html_variants: dict) -> None:
+        """Swap the variant contents in place (e.g. expanding a changelog).
+
+        Keeps the current language selection when the new mapping still
+        contains it. The variant KEYS must match the ones the dialog was
+        built with — the switcher buttons are not rebuilt.
+        """
+        if self.message_area is None or not html_variants:
+            return
+        self._html_variants = dict(html_variants)
+        code = (self._current_variant
+                if self._current_variant in self._html_variants
+                else next(iter(self._html_variants)))
+        self._select_variant(code)
 
     def _apply_scrollable_size(self) -> None:
         """Fixed comfortable size, capped to the available screen area."""

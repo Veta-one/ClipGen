@@ -45,7 +45,8 @@ class MainWindow(QMainWindow):
     show_explanation_signal = pyqtSignal(str, str)  # explanation text, hotkey_color for learning mode
 
     # Update signals (called from background thread)
-    update_found_signal = pyqtSignal(str, str, str)  # version, url, notes
+    # version, url, notes, history: list[(version, body)] of skipped releases
+    update_found_signal = pyqtSignal(str, str, str, object)
     update_not_found_signal = pyqtSignal()
 
     # Voice transcription signals (cross-thread safe)
@@ -396,7 +397,7 @@ class MainWindow(QMainWindow):
         checker = UpdateChecker(
             __version__,
             self.config.get("skipped_version", ""),
-            lambda v, u, n: self.update_found_signal.emit(v, u, n),
+            lambda v, u, n, h: self.update_found_signal.emit(v, u, n, h),
             lambda: None,  # No callback for not found (silent)
             is_manual=False
         )
@@ -885,18 +886,30 @@ class MainWindow(QMainWindow):
         checker = UpdateChecker(
             __version__,
             self.config.get("skipped_version", ""),
-            lambda v, u, n: self.update_found_signal.emit(v, u, n),
+            lambda v, u, n, h: self.update_found_signal.emit(v, u, n, h),
             lambda: self.update_not_found_signal.emit(),
             is_manual=True
         )
         checker.start()
 
-    def _on_update_found(self, version: str, url: str, notes: str) -> None:
-        """Show update dialog when new version found."""
+    def _on_update_found(self, version: str, url: str, notes: str,
+                         history=None) -> None:
+        """Show update dialog when new version found.
+
+        ``history`` carries ``(version, body)`` for releases between the
+        user's installed version and the new one — rendered on demand via
+        an expand link so each release's notes only describe that release.
+        """
         import re
         import webbrowser
         from PyQt5.QtWidgets import QDialog
         from ..utils.updates import extract_notes_blocks
+
+        raw_body = notes
+        history = [
+            (str(ver), body) for ver, body in (history or [])
+            if isinstance(body, str) and body.strip()
+        ]
 
         # Release bodies can be multilingual. Open on the UI language
         # (English for any non-Russian locale); the dialog shows a switcher
@@ -955,14 +968,47 @@ class MainWindow(QMainWindow):
             return (f"<hr style='border: 1px solid #444; margin: 10px 0;'>"
                     f"<div style='font-family: sans-serif;'>{formatted}</div>")
 
-        full_text = f"{header}{notes_to_html(notes) if notes else ''}"
+        def lang_block(body: str, code) -> str:
+            """Pick a language block from any release body, with fallbacks."""
+            body_blocks = extract_notes_blocks(body)
+            if not body_blocks:
+                return body
+            if code and code in body_blocks:
+                return body_blocks[code]
+            if "en" in body_blocks:
+                return body_blocks["en"]
+            return next(iter(body_blocks.values()))
+
+        show_history_label = updates_lang.get(
+            "show_history", "Show changes from previous versions"
+        )
+        history_link = ("<br><a href='clipgen://history' "
+                        f"style='color:#81B3F0;'>{show_history_label}</a>")
+
+        def build_variant(code, expanded: bool) -> str:
+            """Full dialog HTML for one language, optionally with history."""
+            text = lang_block(raw_body, code)
+            parts = [header]
+            if text:
+                parts.append(notes_to_html(text))
+            if expanded:
+                for past_version, past_body in history:
+                    parts.append(
+                        "<h2 style='color:#FFFFFF; font-size:15px; "
+                        f"margin:16px 0 2px 0;'>ClipGen {past_version}</h2>"
+                    )
+                    parts.append(notes_to_html(lang_block(past_body, code)))
+            elif history:
+                parts.append(history_link)
+            return "".join(parts)
+
+        full_text = build_variant(default_code, False)
 
         # One pre-rendered HTML body per language for the dialog switcher.
         html_variants = None
         if len(blocks) > 1:
             html_variants = {
-                code: f"{header}{notes_to_html(text)}"
-                for code, text in blocks.items()
+                code: build_variant(code, False) for code in blocks
             }
 
         # Create dialog. Release notes can be long, so render them in a
@@ -977,6 +1023,30 @@ class MainWindow(QMainWindow):
             html_variants=html_variants,
             default_variant=default_code
         )
+
+        # The expand link swaps the body for one that appends each skipped
+        # release's notes (in the selected language). External links keep
+        # opening in the browser.
+        if dialog.message_area is not None:
+            from PyQt5.QtGui import QDesktopServices
+
+            dialog.message_area.setOpenLinks(False)
+
+            def on_anchor_clicked(qurl) -> None:
+                if qurl.toString() == "clipgen://history":
+                    expanded = {
+                        code: build_variant(code, True) for code in blocks
+                    } if len(blocks) > 1 else None
+                    if expanded:
+                        dialog.update_html_variants(expanded)
+                    else:
+                        dialog.message_area.setHtml(
+                            build_variant(default_code, True)
+                        )
+                else:
+                    QDesktopServices.openUrl(qurl)
+
+            dialog.message_area.anchorClicked.connect(on_anchor_clicked)
 
         # Override button styles: Download = green, Skip = red
         dialog.yes_button.setStyleSheet("""

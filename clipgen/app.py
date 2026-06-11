@@ -38,6 +38,11 @@ class ClipGenApp:
 
     def __init__(self):
         """Initialize application components."""
+        # Startup milestones go to fault_log.txt — frozen startup hangs are
+        # otherwise undebuggable (no console, no logs yet).
+        from .main import _bootstrap_log as _mark
+
+        _mark("app: loading config")
         # Configuration
         self.config = ConfigManager()
 
@@ -47,6 +52,7 @@ class ClipGenApp:
         # Internationalization
         self.i18n = I18nManager(self.config.config)
 
+        _mark("app: creating providers")
         # API providers
         self.gemini = GeminiProvider(self.config.config)
         self.openai = OpenAIProvider(self.config.config)
@@ -95,18 +101,23 @@ class ClipGenApp:
         if scale != 1.0:
             os.environ["QT_SCALE_FACTOR"] = str(scale)
 
+        _mark("app: creating QApplication")
         # Qt application
         self.qt_app = QApplication(sys.argv)
 
+        _mark("app: building MainWindow")
         # Main window
         self.window = MainWindow(self)
+        _mark("app: MainWindow ready")
 
         # Connect processor callbacks to window signals
         self._connect_processor_callbacks()
 
+        _mark("app: init transcription")
         # Build transcription pipeline if user enabled it.
         self._maybe_init_transcription()
 
+        _mark("app: starting hotkey listener")
         # Start hotkey listener
         self.hotkey_listener.start()
 
@@ -123,6 +134,7 @@ class ClipGenApp:
         # Sync autostart button
         self.window.settings_tab.set_autostart_checked(is_autostart_enabled())
 
+        _mark("app: init complete")
         # Refresh UI
         self.window.refresh_all_signal.emit()
 

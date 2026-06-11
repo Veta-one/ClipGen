@@ -190,7 +190,9 @@ def ensure_user_site_on_path() -> bool:
     if not os.path.isdir(user_site):
         return False
     if user_site not in sys.path:
-        sys.path.insert(0, user_site)
+        # Append, never prepend: user-site copies of BUNDLED packages must
+        # not shadow the bundle (see main._bootstrap_user_site).
+        sys.path.append(user_site)
         importlib.invalidate_caches()
         logger.info("Added user site-packages to sys.path: %s", user_site)
     return True

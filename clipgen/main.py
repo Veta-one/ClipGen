@@ -29,7 +29,16 @@ def _bootstrap_log(msg: str) -> None:
 
 
 def _bootstrap_user_site() -> None:
-    """Insert the user's pip site-packages at the front of ``sys.path``."""
+    """Append the user's pip site-packages to the END of ``sys.path``.
+
+    The user site only exists to provide the optional ML packages that are
+    deliberately NOT bundled (faster-whisper, onnxruntime, numpy, ...).
+    It must come AFTER the bundle paths: random user-installed copies of
+    bundled packages (openai, pydantic, ...) would otherwise shadow the
+    bundled ones and mix incompatible versions — e.g. a user-site
+    ``pydantic`` importing the bundled ``pydantic_core`` crashes the app
+    at startup with an ImportError.
+    """
     if not getattr(_sys, "frozen", False):
         return
     if _sys.platform != "win32":
@@ -41,8 +50,8 @@ def _bootstrap_user_site() -> None:
     py_dir = f"Python{_sys.version_info.major}{_sys.version_info.minor}"
     user_site = _os.path.join(appdata, "Python", py_dir, "site-packages")
     if _os.path.isdir(user_site) and user_site not in _sys.path:
-        _sys.path.insert(0, user_site)
-        _bootstrap_log(f"user_site: added {user_site}")
+        _sys.path.append(user_site)
+        _bootstrap_log(f"user_site: appended {user_site}")
     else:
         _bootstrap_log(f"user_site: not adding (exists={_os.path.isdir(user_site)})")
 
@@ -180,14 +189,29 @@ def main():
     # of this file). They MUST happen before PyQt5 is imported.
 
     try:
+        _bootstrap_log("main: importing ClipGenApp")
         from clipgen.app import ClipGenApp
 
+        _bootstrap_log("main: creating ClipGenApp")
         app = ClipGenApp()
+        _bootstrap_log("main: entering Qt event loop")
         sys.exit(app.run())
 
     except Exception as e:
+        # A windowed exe has no console — print() alone would make startup
+        # failures completely invisible. Persist them next to the exe.
         print(f"Failed to start: {e}")
         traceback.print_exc()
+        try:
+            if getattr(sys, "frozen", False):
+                base = os.path.dirname(sys.executable)
+            else:
+                base = os.getcwd()
+            with open(os.path.join(base, "error_log.txt"), "a", encoding="utf-8") as f:
+                f.write(f"\n--- startup failure {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+                f.write(traceback.format_exc())
+        except Exception:
+            pass
         sys.exit(1)
 
 

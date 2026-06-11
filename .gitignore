@@ -31,12 +31,13 @@ FULL_RELEASE_AUDIT.md
 TRANSCRIPTION_AUDIT.md
 
 # Build/runtime artifacts
-build.log
+build*.log
 fault_log.txt
 transcription_diagnostics.txt
 settings.json.corrupt.*.bak
 Models/
 release/
+dist_build/
 
 # Claude Code
 .claude/

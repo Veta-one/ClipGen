@@ -119,7 +119,8 @@
         "title": "ClipGen Update Available",
         "message": "A new version is available: <b>v{new_version}</b><br><br>Do you want to visit the download page?",
         "download_button": "Go to website",
-        "skip_button": "Skip this version"
+        "skip_button": "Skip this version",
+        "show_history": "Show changes from previous versions"
     },
     "tabs": {
         "logs": "Logs",

@@ -1,6 +1,7 @@
 <!-- lang:ru -->
-## Что нового в 2.4.1
+## Что нового в 2.4.1 и 2.4.2
 
+• Исправлен запуск программы на компьютерах, где в пользовательском Python установлены свои версии пакетов (openai, pydantic и т.п.) — они больше не конфликтуют со встроенными
 • Parakeet теперь действительно работает на видеокарте: установщик защищает GPU-библиотеку от перезаписи. Разница огромная — на RTX 3060 фраза на 7–8 секунд речи распознаётся за 0.1 секунды вместо ~1 секунды на процессоре
 • Если вы уже установили Parakeet в версии 2.4.0 — программа сама заметит проблему, просто нажмите «Установить / Скачать» ещё раз, и установка починится
 • В логах и статусе теперь видно, на чём реально загрузилась модель: CUDA или CPU — никаких догадок
@@ -44,8 +45,9 @@
 ## 🇬🇧 English
 
 <!-- lang:en -->
-## What's new in 2.4.1
+## What's new in 2.4.1 and 2.4.2
 
+• Fixed startup on machines where the user's Python has its own copies of packages (openai, pydantic, etc.) — they no longer conflict with the bundled ones
 • Parakeet now truly runs on your GPU: the installer protects the GPU library from being overwritten. The difference is dramatic — on an RTX 3060 a 7–8 second phrase is recognized in 0.1 seconds instead of ~1 second on the CPU
 • Already installed Parakeet with 2.4.0? The app will notice the problem itself — just click "Install / Download" once more and the installation fixes itself
 • The logs and the status now show where the model actually loaded: CUDA or CPU — no more guessing
